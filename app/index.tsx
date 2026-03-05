@@ -1,5 +1,6 @@
 import { Redirect } from "expo-router";
-import { ActivityIndicator, View } from "react-native";
+import { ActivityIndicator } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { useAuth } from "@/hooks/use-auth";
 
 export default function Index() {
@@ -7,11 +8,11 @@ export default function Index() {
 
   if (loading) {
     return (
-      <View className="flex-1 items-center justify-center bg-canvas-dark">
-        <ActivityIndicator color="#E8B15D" />
-      </View>
+      <SafeAreaView edges={["top", "bottom"]} className="flex-1 items-center justify-center bg-night2">
+        <ActivityIndicator color="#C4623A" />
+      </SafeAreaView>
     );
   }
 
-  return <Redirect href={user ? "/(tabs)" : "/(auth)/sign-in"} />;
+  return <Redirect href={user ? "/(tabs)" : "/(auth)"} />;
 }

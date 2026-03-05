@@ -1,6 +1,7 @@
 import { supabase } from "@/lib/supabase";
 import { AuthUser } from "@/lib/auth";
 import { ChildProfile, FamilyMember, Milestone, Role, Workspace } from "@/lib/types";
+import { toSupabaseSetupError } from "@/lib/supabase-setup";
 
 const DEFAULT_MILESTONES = [
   { key: "first_word", label: "First word" },
@@ -17,26 +18,21 @@ function titleCaseName(raw: string | undefined): string {
 }
 
 async function ensureProfile(user: AuthUser): Promise<void> {
-  const { data: existing, error: selectError } = await supabase
+  const fallbackName = user.name?.trim() || user.email.split("@")[0] || "Parent";
+
+  const { error } = await supabase
     .from("profiles")
-    .select("id")
-    .eq("id", user.id)
-    .maybeSingle();
+    .upsert(
+      {
+        id: user.id,
+        full_name: fallbackName,
+        email: user.email
+      },
+      { onConflict: "id" }
+    );
 
-  if (selectError) {
-    throw new Error(`Could not load profile: ${selectError.message}`);
-  }
-
-  if (!existing) {
-    const { error: insertError } = await supabase.from("profiles").insert({
-      id: user.id,
-      full_name: user.name ?? user.email.split("@")[0],
-      email: user.email
-    });
-
-    if (insertError) {
-      throw new Error(`Could not create profile: ${insertError.message}`);
-    }
+  if (error) {
+    throw toSupabaseSetupError(new Error(`Could not create or update profile: ${error.message}`));
   }
 }
 
@@ -48,7 +44,7 @@ async function ensureDefaultMilestones(childId: string): Promise<void> {
     .limit(1);
 
   if (error) {
-    throw new Error(`Could not load milestones: ${error.message}`);
+    throw toSupabaseSetupError(new Error(`Could not load milestones: ${error.message}`));
   }
 
   if ((existing?.length ?? 0) > 0) return;
@@ -61,7 +57,7 @@ async function ensureDefaultMilestones(childId: string): Promise<void> {
 
   const { error: insertError } = await supabase.from("milestones").insert(payload);
   if (insertError) {
-    throw new Error(`Could not seed milestones: ${insertError.message}`);
+    throw toSupabaseSetupError(new Error(`Could not seed milestones: ${insertError.message}`));
   }
 }
 
@@ -73,7 +69,7 @@ async function ensureChild(familyId: string): Promise<ChildProfile> {
     .order("created_at", { ascending: true });
 
   if (error) {
-    throw new Error(`Could not load children: ${error.message}`);
+    throw toSupabaseSetupError(new Error(`Could not load children: ${error.message}`));
   }
 
   if (children && children.length > 0) {
@@ -95,7 +91,7 @@ async function ensureChild(familyId: string): Promise<ChildProfile> {
     .single();
 
   if (insertError || !inserted) {
-    throw new Error(`Could not create child profile: ${insertError?.message ?? "Unknown"}`);
+    throw toSupabaseSetupError(new Error(`Could not create child profile: ${insertError?.message ?? "Unknown"}`));
   }
 
   await ensureDefaultMilestones(inserted.id);
@@ -118,109 +114,209 @@ async function createFamilyForUser(user: AuthUser): Promise<{ familyId: string; 
     .single();
 
   if (familyError || !family) {
-    throw new Error(`Could not create family: ${familyError?.message ?? "Unknown"}`);
+    throw toSupabaseSetupError(new Error(`Could not create family: ${familyError?.message ?? "Unknown"}`));
   }
 
-  const { error: memberError } = await supabase.from("family_members").insert({
-    family_id: family.id,
-    user_id: user.id,
-    role: "owner"
-  });
+  const { error: memberError } = await supabase.from("family_members").upsert(
+    {
+      family_id: family.id,
+      user_id: user.id,
+      role: "owner"
+    },
+    { onConflict: "family_id,user_id" }
+  );
 
   if (memberError) {
-    throw new Error(`Could not add owner membership: ${memberError.message}`);
+    throw toSupabaseSetupError(new Error(`Could not add owner membership: ${memberError.message}`));
   }
 
   return { familyId: family.id, familyName: family.name };
 }
 
-async function resolveMembership(userId: string): Promise<{ familyId: string; familyName: string; role: Role } | null> {
+async function getMembership(userId: string): Promise<{ familyId: string; role: Role } | null> {
   const { data, error } = await supabase
     .from("family_members")
-    .select("family_id, role, families!inner(id, name)")
+    .select("family_id, role")
     .eq("user_id", userId)
+    .order("created_at", { ascending: true })
     .limit(1)
     .maybeSingle();
 
   if (error) {
-    throw new Error(`Could not load family membership: ${error.message}`);
+    throw toSupabaseSetupError(new Error(`Could not load family membership: ${error.message}`));
   }
 
   if (!data) return null;
 
-  const familyRecord = Array.isArray(data.families) ? data.families[0] : data.families;
-
   return {
     familyId: data.family_id,
-    familyName: familyRecord?.name ?? "EverNest Family",
     role: data.role as Role
+  };
+}
+
+async function getOwnedFamily(userId: string): Promise<{ id: string; name: string } | null> {
+  const { data, error } = await supabase
+    .from("families")
+    .select("id, name")
+    .eq("owner_id", userId)
+    .order("created_at", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    throw toSupabaseSetupError(new Error(`Could not load owned family: ${error.message}`));
+  }
+
+  return data;
+}
+
+async function getFamilyName(familyId: string): Promise<string | null> {
+  const { data, error } = await supabase
+    .from("families")
+    .select("id, name")
+    .eq("id", familyId)
+    .maybeSingle();
+
+  if (error) {
+    throw toSupabaseSetupError(new Error(`Could not load family details: ${error.message}`));
+  }
+
+  return data?.name ?? null;
+}
+
+async function ensureOwnerMembership(familyId: string, userId: string): Promise<void> {
+  const { error } = await supabase.from("family_members").upsert(
+    {
+      family_id: familyId,
+      user_id: userId,
+      role: "owner"
+    },
+    { onConflict: "family_id,user_id" }
+  );
+
+  if (error) {
+    throw toSupabaseSetupError(new Error(`Could not ensure owner membership: ${error.message}`));
+  }
+}
+
+async function ensureFamilyContext(user: AuthUser): Promise<{ familyId: string; familyName: string; role: Role }> {
+  const membership = await getMembership(user.id);
+  if (membership) {
+    const familyName = (await getFamilyName(membership.familyId)) ?? "EverNest Family";
+    return {
+      familyId: membership.familyId,
+      familyName,
+      role: membership.role
+    };
+  }
+
+  const ownedFamily = await getOwnedFamily(user.id);
+  if (ownedFamily) {
+    await ensureOwnerMembership(ownedFamily.id, user.id);
+    return {
+      familyId: ownedFamily.id,
+      familyName: ownedFamily.name,
+      role: "owner"
+    };
+  }
+
+  const created = await createFamilyForUser(user);
+  return {
+    familyId: created.familyId,
+    familyName: created.familyName,
+    role: "owner"
   };
 }
 
 export async function bootstrapWorkspace(user: AuthUser): Promise<Workspace> {
   await ensureProfile(user);
 
-  const membership = await resolveMembership(user.id);
-  let familyId = membership?.familyId;
-  let familyName = membership?.familyName;
-  let role: Role = membership?.role ?? "owner";
+  let familyContext = await ensureFamilyContext(user);
+  let activeChild: ChildProfile;
 
-  if (!membership) {
+  try {
+    activeChild = await ensureChild(familyContext.familyId);
+  } catch (error) {
+    // Self-heal for broken membership/family states by creating a fresh family workspace.
     const created = await createFamilyForUser(user);
-    familyId = created.familyId;
-    familyName = created.familyName;
-    role = "owner";
-  }
+    familyContext = {
+      familyId: created.familyId,
+      familyName: created.familyName,
+      role: "owner"
+    };
+    activeChild = await ensureChild(familyContext.familyId);
 
-  if (!familyId) {
-    throw new Error("Family bootstrap failed");
+    if (error instanceof Error) {
+      console.warn("Workspace self-heal triggered:", error.message);
+    }
   }
-
-  const activeChild = await ensureChild(familyId);
 
   const { data: childrenRows, error: childError } = await supabase
     .from("children")
     .select("id, first_name, birth_date")
-    .eq("family_id", familyId)
+    .eq("family_id", familyContext.familyId)
     .order("created_at", { ascending: true });
 
   if (childError) {
-    throw new Error(`Could not load children list: ${childError.message}`);
+    throw toSupabaseSetupError(new Error(`Could not load children list: ${childError.message}`));
   }
 
-  const children: ChildProfile[] = (childrenRows ?? []).map((row) => ({
-    id: row.id,
-    firstName: titleCaseName(row.first_name),
-    birthDate: row.birth_date
-  }));
+  const children: ChildProfile[] =
+    (childrenRows ?? []).map((row) => ({
+      id: row.id,
+      firstName: titleCaseName(row.first_name),
+      birthDate: row.birth_date
+    })) ?? [];
 
   return {
     family: {
-      id: familyId,
-      name: familyName ?? "EverNest Family"
+      id: familyContext.familyId,
+      name: familyContext.familyName
     },
-    role,
-    children,
+    role: familyContext.role,
+    children: children.length > 0 ? children : [activeChild],
     activeChild
   };
 }
 
 export async function listFamilyMembers(familyId: string): Promise<FamilyMember[]> {
-  const { data, error } = await supabase
+  const { data: memberRows, error: memberError } = await supabase
     .from("family_members")
-    .select("user_id, role, profiles!inner(full_name, email)")
+    .select("user_id, role")
     .eq("family_id", familyId)
     .order("created_at", { ascending: true });
 
-  if (error) {
-    throw new Error(`Could not load family members: ${error.message}`);
+  if (memberError) {
+    throw toSupabaseSetupError(new Error(`Could not load family members: ${memberError.message}`));
   }
 
-  return (data ?? []).map((row) => {
-    const profile = Array.isArray(row.profiles) ? row.profiles[0] : row.profiles;
+  const userIds = Array.from(new Set((memberRows ?? []).map((row) => row.user_id)));
+  if (userIds.length === 0) return [];
+
+  const { data: profileRows, error: profileError } = await supabase
+    .from("profiles")
+    .select("id, full_name, email")
+    .in("id", userIds);
+
+  if (profileError) {
+    throw toSupabaseSetupError(new Error(`Could not load member profiles: ${profileError.message}`));
+  }
+
+  const profileMap = new Map(
+    (profileRows ?? []).map((row) => [
+      row.id,
+      {
+        fullName: row.full_name ?? "Guardian",
+        email: row.email ?? ""
+      }
+    ])
+  );
+
+  return (memberRows ?? []).map((row) => {
+    const profile = profileMap.get(row.user_id);
     return {
       id: row.user_id,
-      fullName: profile?.full_name ?? "Guardian",
+      fullName: profile?.fullName ?? "Guardian",
       email: profile?.email ?? "",
       role: row.role as Role
     };
@@ -235,7 +331,7 @@ export async function listMilestones(childId: string): Promise<Milestone[]> {
     .order("label", { ascending: true });
 
   if (error) {
-    throw new Error(`Could not load milestones: ${error.message}`);
+    throw toSupabaseSetupError(new Error(`Could not load milestones: ${error.message}`));
   }
 
   return (data ?? []).map((row) => ({
@@ -257,7 +353,7 @@ export async function createChild(familyId: string, firstName: string, birthDate
     .single();
 
   if (error || !data) {
-    throw new Error(`Could not create child: ${error?.message ?? "Unknown"}`);
+    throw toSupabaseSetupError(new Error(`Could not create child: ${error?.message ?? "Unknown"}`));
   }
 
   await ensureDefaultMilestones(data.id);

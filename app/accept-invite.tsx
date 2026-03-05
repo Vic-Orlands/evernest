@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { router, useLocalSearchParams } from "expo-router";
-import { ActivityIndicator, Pressable, Text, View } from "react-native";
+import { ActivityIndicator, Pressable, Text } from "react-native";
+import { MotiView } from "moti";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { acceptFamilyInvite } from "@/lib/collaboration";
 
 export default function AcceptInviteScreen() {
@@ -31,28 +33,38 @@ export default function AcceptInviteScreen() {
   }, [safeToken]);
 
   return (
-    <View className="flex-1 items-center justify-center bg-canvas-dark px-6">
-      {state === "loading" ? <ActivityIndicator color="#E8B15D" /> : null}
+    <SafeAreaView edges={["top", "bottom"]} className="flex-1 items-center justify-center bg-night2 px-6">
+      {state === "loading" ? <ActivityIndicator color="#C4623A" /> : null}
 
       {state === "success" ? (
-        <>
-          <Text className="font-display text-3xl text-ink-dark">Invite Accepted</Text>
-          <Text className="mt-2 text-center font-body text-zinc-300">You are now part of this EverNest family timeline.</Text>
-          <Pressable onPress={() => router.replace("/(tabs)")} className="mt-6 rounded-2xl bg-amber px-5 py-3">
-            <Text className="font-bodybold text-zinc-900">Open Timeline</Text>
+        <MotiView
+          from={{ opacity: 0, translateY: 12 }}
+          animate={{ opacity: 1, translateY: 0 }}
+          transition={{ duration: 260 }}
+          className="items-center"
+        >
+          <Text className="font-display text-4xl text-cream">Invite Accepted</Text>
+          <Text className="mt-2 text-center font-body text-moonDim">You are now part of this EverNest family timeline.</Text>
+          <Pressable onPress={() => router.replace("/(tabs)")} className="mt-6 rounded-2xl bg-terracotta px-5 py-3">
+            <Text className="font-bodybold text-cream">Open Timeline</Text>
           </Pressable>
-        </>
+        </MotiView>
       ) : null}
 
       {state === "error" ? (
-        <>
-          <Text className="font-display text-3xl text-ink-dark">Invite Error</Text>
-          <Text className="mt-2 text-center font-body text-zinc-300">{errorMessage}</Text>
-          <Pressable onPress={() => router.replace("/(tabs)")} className="mt-6 rounded-2xl border border-zinc-700 px-5 py-3">
-            <Text className="font-body text-zinc-200">Go back</Text>
+        <MotiView
+          from={{ opacity: 0, translateY: 12 }}
+          animate={{ opacity: 1, translateY: 0 }}
+          transition={{ duration: 260 }}
+          className="items-center"
+        >
+          <Text className="font-display text-4xl text-cream">Invite Error</Text>
+          <Text className="mt-2 text-center font-body text-moonDim">{errorMessage}</Text>
+          <Pressable onPress={() => router.replace("/(tabs)")} className="mt-6 rounded-2xl border border-night4 px-5 py-3">
+            <Text className="font-body text-moon">Go back</Text>
           </Pressable>
-        </>
+        </MotiView>
       ) : null}
-    </View>
+    </SafeAreaView>
   );
 }

@@ -1,54 +1,96 @@
+import { Text } from "react-native";
 import { Tabs } from "expo-router";
-import { Ionicons } from "@expo/vector-icons";
+import { MotiView } from "moti";
+import { MaterialCommunityIcons } from "@expo/vector-icons";
+import { T } from "@/lib/theme";
+
+const TAB_META: Record<string, { icon: keyof typeof MaterialCommunityIcons.glyphMap; label: string }> = {
+  index: { icon: "home-variant-outline", label: "Home" },
+  capture: { icon: "camera-iris", label: "Capture" },
+  capsules: { icon: "archive-lock-outline", label: "Capsules" },
+  family: { icon: "account-group-outline", label: "Family" },
+  settings: { icon: "cog-outline", label: "Settings" }
+};
 
 export default function TabsLayout() {
   return (
     <Tabs
-      screenOptions={{
-        headerShown: false,
-        tabBarStyle: {
-          backgroundColor: "#0F1420",
-          borderTopColor: "#1E2433"
-        },
-        tabBarActiveTintColor: "#E8B15D",
-        tabBarInactiveTintColor: "#8B95A7"
+      screenOptions={({ route }) => {
+        const meta = TAB_META[route.name] ?? { icon: "circle-outline", label: route.name };
+
+        return {
+          headerShown: false,
+          tabBarStyle: {
+            backgroundColor: T.night2,
+            borderTopColor: "rgba(255,255,255,0.08)",
+            borderTopWidth: 1,
+            height: 78,
+            paddingTop: 9,
+            paddingBottom: 14
+          },
+          tabBarLabel: ({ focused }) => (
+            <MotiView
+              animate={{ opacity: focused ? 1 : 0.76 }}
+              transition={{ type: "timing", duration: 180 }}
+              style={{ alignItems: "center", gap: 2, marginTop: 6 }}
+            >
+              <Text
+                style={{
+                  fontFamily: focused ? "DMSans_500Medium" : "DMSans_400Regular",
+                  fontSize: 9,
+                  color: focused ? T.terracotta : T.moonDim,
+                  letterSpacing: 0.42
+                }}
+              >
+                {meta.label}
+              </Text>
+              {focused ? (
+                <MotiView
+                  from={{ scale: 0.8, opacity: 0.6 }}
+                  animate={{ scale: 1, opacity: 1 }}
+                  transition={{ type: "timing", duration: 180 }}
+                  style={{
+                    width: 4,
+                    height: 4,
+                    borderRadius: 2,
+                    backgroundColor: T.terracotta
+                  }}
+                />
+              ) : null}
+            </MotiView>
+          ),
+          tabBarIcon: ({ focused }) => (
+            <MotiView
+              animate={{
+                scale: focused ? 1.06 : 1,
+                translateY: focused ? -1 : 0,
+                backgroundColor: focused ? "rgba(196,98,58,0.2)" : "rgba(255,255,255,0.04)"
+              }}
+              transition={{ type: "timing", duration: 220 }}
+              style={{
+                width: 36,
+                height: 36,
+                borderRadius: 999,
+                alignItems: "center",
+                justifyContent: "center",
+                borderWidth: 1,
+                borderColor: focused ? "rgba(196,98,58,0.45)" : "rgba(255,255,255,0.08)"
+              }}
+            >
+              <MaterialCommunityIcons name={meta.icon} size={20} color={focused ? T.cream : T.moonDim} />
+            </MotiView>
+          ),
+          tabBarItemStyle: {
+            paddingVertical: 1
+          }
+        };
       }}
     >
-      <Tabs.Screen
-        name="index"
-        options={{
-          title: "Timeline",
-          tabBarIcon: ({ color, size }) => <Ionicons name="albums-outline" color={color} size={size} />
-        }}
-      />
-      <Tabs.Screen
-        name="capture"
-        options={{
-          title: "Capture",
-          tabBarIcon: ({ color, size }) => <Ionicons name="camera-outline" color={color} size={size} />
-        }}
-      />
-      <Tabs.Screen
-        name="capsules"
-        options={{
-          title: "Capsules",
-          tabBarIcon: ({ color, size }) => <Ionicons name="time-outline" color={color} size={size} />
-        }}
-      />
-      <Tabs.Screen
-        name="family"
-        options={{
-          title: "Family",
-          tabBarIcon: ({ color, size }) => <Ionicons name="people-outline" color={color} size={size} />
-        }}
-      />
-      <Tabs.Screen
-        name="settings"
-        options={{
-          title: "Settings",
-          tabBarIcon: ({ color, size }) => <Ionicons name="settings-outline" color={color} size={size} />
-        }}
-      />
+      <Tabs.Screen name="index" options={{ title: "Home" }} />
+      <Tabs.Screen name="capture" options={{ title: "Capture" }} />
+      <Tabs.Screen name="capsules" options={{ title: "Capsule" }} />
+      <Tabs.Screen name="family" options={{ title: "Family" }} />
+      <Tabs.Screen name="settings" options={{ title: "Settings" }} />
     </Tabs>
   );
 }

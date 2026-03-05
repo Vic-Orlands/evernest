@@ -1,8 +1,8 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
-import { bootstrapWorkspace } from "@/lib/workspace";
 import { queryKeys } from "@/lib/query-keys";
+import { bootstrapWorkspace } from "../lib/workspace";
 
 export function useWorkspace() {
   const { user, loading: authLoading, refresh: refreshAuth } = useAuth();

@@ -1,6 +1,8 @@
 import { supabase } from "@/lib/supabase";
 import { createCapsuleSchema, createMemorySchema, commentSchema, reactionSchema, reminderRuleSchema } from "@/lib/validation";
 import { Capsule, ExportJob, MemoryComment, MemoryDetails, MemoryItem, MemoryReaction, ReminderRule } from "@/lib/types";
+import { requireCurrentUserId } from "@/lib/current-user";
+import { toSupabaseSetupError } from "@/lib/supabase-setup";
 
 type CreateMemoryInput = {
   familyId: string;
@@ -72,7 +74,7 @@ async function getProfileNameMap(userIds: string[]): Promise<Map<string, string>
 
   const { data, error } = await supabase.from("profiles").select("id, full_name").in("id", unique);
   if (error) {
-    throw new Error(`Could not load profile names: ${error.message}`);
+    throw toSupabaseSetupError(new Error(`Could not load profile names: ${error.message}`));
   }
 
   return new Map((data ?? []).map((row) => [row.id, row.full_name ?? "Parent"]));
@@ -106,6 +108,7 @@ function mapMemoryRows(
   });
 }
 
+
 export async function listMemories(familyId: string, childId: string): Promise<MemoryItem[]> {
   const { data, error } = await supabase
     .from("memories")
@@ -117,7 +120,7 @@ export async function listMemories(familyId: string, childId: string): Promise<M
     .order("captured_at", { ascending: false })
     .limit(300);
 
-  if (error) throw new Error(`Could not list memories: ${error.message}`);
+  if (error) throw toSupabaseSetupError(new Error(`Could not list memories: ${error.message}`));
 
   const rows = data ?? [];
   const signedUrlMap = await createSignedUrlMap(rows.flatMap((row) => [row.media_path, row.voice_note_path]));
@@ -135,7 +138,7 @@ export async function getMemoryDetails(memoryId: string): Promise<MemoryDetails>
     .eq("id", memoryId)
     .limit(1);
 
-  if (memoryError) throw new Error(`Could not fetch memory: ${memoryError.message}`);
+  if (memoryError) throw toSupabaseSetupError(new Error(`Could not fetch memory: ${memoryError.message}`));
 
   const row = memoryRows?.[0];
   if (!row) throw new Error("Memory not found");
@@ -151,7 +154,7 @@ export async function getMemoryDetails(memoryId: string): Promise<MemoryDetails>
     .eq("memory_id", memoryId)
     .order("created_at", { ascending: true });
 
-  if (commentsError) throw new Error(`Could not list comments: ${commentsError.message}`);
+  if (commentsError) throw toSupabaseSetupError(new Error(`Could not list comments: ${commentsError.message}`));
 
   const { data: reactionRows, error: reactionsError } = await supabase
     .from("memory_reactions")
@@ -159,7 +162,7 @@ export async function getMemoryDetails(memoryId: string): Promise<MemoryDetails>
     .eq("memory_id", memoryId)
     .order("created_at", { ascending: true });
 
-  if (reactionsError) throw new Error(`Could not list reactions: ${reactionsError.message}`);
+  if (reactionsError) throw toSupabaseSetupError(new Error(`Could not list reactions: ${reactionsError.message}`));
 
   const involvedUserIds = Array.from(
     new Set([...(commentsRows ?? []).map((row) => row.user_id), ...(reactionRows ?? []).map((row) => row.user_id)])
@@ -194,10 +197,7 @@ export async function createMemory(input: CreateMemoryInput): Promise<string> {
     capturedAt: input.capturedAt
   });
 
-  const { data: authUser, error: authError } = await supabase.auth.getUser();
-  if (authError || !authUser.user) {
-    throw new Error("Must be signed in");
-  }
+  const userId = await requireCurrentUserId();
 
   const memoryId = crypto.randomUUID();
   const mediaExt = extensionFromUri(input.mediaUri, input.mediaType === "video" ? "mp4" : "jpg");
@@ -222,11 +222,11 @@ export async function createMemory(input: CreateMemoryInput): Promise<string> {
     media_path: mediaPath,
     voice_note_path: voicePath,
     captured_at: validated.capturedAt,
-    created_by: authUser.user.id
+    created_by: userId
   });
 
   if (insertError) {
-    throw new Error(`Could not create memory: ${insertError.message}`);
+    throw toSupabaseSetupError(new Error(`Could not create memory: ${insertError.message}`));
   }
 
   const cleanedTags = Array.from(new Set(validated.tags.map((tag) => tag.toLowerCase())));
@@ -234,7 +234,7 @@ export async function createMemory(input: CreateMemoryInput): Promise<string> {
     const tagRows = cleanedTags.map((tag) => ({ memory_id: memoryId, tag }));
     const { error: tagsError } = await supabase.from("memory_tags").insert(tagRows);
     if (tagsError) {
-      throw new Error(`Could not save tags: ${tagsError.message}`);
+      throw toSupabaseSetupError(new Error(`Could not save tags: ${tagsError.message}`));
     }
   }
 
@@ -243,38 +243,34 @@ export async function createMemory(input: CreateMemoryInput): Promise<string> {
 
 export async function addComment(memoryId: string, body: string): Promise<void> {
   const payload = commentSchema.parse({ memoryId, body });
-  const { data, error } = await supabase.auth.getUser();
-
-  if (error || !data.user) throw new Error("Must be signed in");
+  const userId = await requireCurrentUserId();
 
   const { error: insertError } = await supabase.from("memory_comments").insert({
     memory_id: payload.memoryId,
-    user_id: data.user.id,
+    user_id: userId,
     body: payload.body
   });
 
   if (insertError) {
-    throw new Error(`Could not add comment: ${insertError.message}`);
+    throw toSupabaseSetupError(new Error(`Could not add comment: ${insertError.message}`));
   }
 }
 
 export async function setReaction(memoryId: string, emoji: string): Promise<void> {
   const payload = reactionSchema.parse({ memoryId, emoji });
-  const { data, error } = await supabase.auth.getUser();
-
-  if (error || !data.user) throw new Error("Must be signed in");
+  const userId = await requireCurrentUserId();
 
   const { error: upsertError } = await supabase.from("memory_reactions").upsert(
     {
       memory_id: payload.memoryId,
-      user_id: data.user.id,
+      user_id: userId,
       emoji: payload.emoji
     },
     { onConflict: "memory_id,user_id" }
   );
 
   if (upsertError) {
-    throw new Error(`Could not set reaction: ${upsertError.message}`);
+    throw toSupabaseSetupError(new Error(`Could not set reaction: ${upsertError.message}`));
   }
 }
 
@@ -302,7 +298,7 @@ export async function listCapsules(familyId: string, childId: string): Promise<C
     .order("release_at", { ascending: true });
 
   if (error) {
-    throw new Error(`Could not load capsules: ${error.message}`);
+    throw toSupabaseSetupError(new Error(`Could not load capsules: ${error.message}`));
   }
 
   return (data ?? []).map((row) => ({
@@ -317,9 +313,7 @@ export async function listCapsules(familyId: string, childId: string): Promise<C
 
 export async function createCapsule(input: CreateCapsuleInput): Promise<void> {
   const payload = createCapsuleSchema.parse(input);
-  const { data: authUser, error: authError } = await supabase.auth.getUser();
-
-  if (authError || !authUser.user) throw new Error("Must be signed in");
+  const userId = await requireCurrentUserId();
 
   const { data: capsule, error } = await supabase
     .from("capsules")
@@ -329,13 +323,13 @@ export async function createCapsule(input: CreateCapsuleInput): Promise<void> {
       title: payload.title,
       recipient_email: payload.recipientEmail,
       release_at: payload.releaseAt,
-      created_by: authUser.user.id
+      created_by: userId
     })
     .select("id")
     .single();
 
   if (error || !capsule) {
-    throw new Error(`Could not create capsule: ${error?.message ?? "Unknown"}`);
+    throw toSupabaseSetupError(new Error(`Could not create capsule: ${error?.message ?? "Unknown"}`));
   }
 
   const links = payload.memoryIds.map((memoryId) => ({
@@ -345,23 +339,22 @@ export async function createCapsule(input: CreateCapsuleInput): Promise<void> {
 
   const { error: linkError } = await supabase.from("capsule_memories").insert(links);
   if (linkError) {
-    throw new Error(`Could not attach memories: ${linkError.message}`);
+    throw toSupabaseSetupError(new Error(`Could not attach memories: ${linkError.message}`));
   }
 }
 
 export async function getReminderRule(familyId: string): Promise<ReminderRule | null> {
-  const { data: auth, error: authError } = await supabase.auth.getUser();
-  if (authError || !auth.user) return null;
+  const userId = await requireCurrentUserId();
 
   const { data, error } = await supabase
     .from("reminder_rules")
     .select("id, user_id, family_id, timezone, hour, minute, enabled")
     .eq("family_id", familyId)
-    .eq("user_id", auth.user.id)
+    .eq("user_id", userId)
     .maybeSingle();
 
   if (error) {
-    throw new Error(`Could not load reminder rule: ${error.message}`);
+    throw toSupabaseSetupError(new Error(`Could not load reminder rule: ${error.message}`));
   }
 
   if (!data) return null;
@@ -385,13 +378,11 @@ export async function saveReminderRule(params: {
   enabled: boolean;
 }): Promise<void> {
   const payload = reminderRuleSchema.parse(params);
-  const { data: auth, error: authError } = await supabase.auth.getUser();
-
-  if (authError || !auth.user) throw new Error("Must be signed in");
+  const userId = await requireCurrentUserId();
 
   const { error } = await supabase.from("reminder_rules").upsert(
     {
-      user_id: auth.user.id,
+      user_id: userId,
       family_id: payload.familyId,
       timezone: payload.timezone,
       hour: payload.hour,
@@ -402,7 +393,7 @@ export async function saveReminderRule(params: {
   );
 
   if (error) {
-    throw new Error(`Could not save reminder rule: ${error.message}`);
+    throw toSupabaseSetupError(new Error(`Could not save reminder rule: ${error.message}`));
   }
 }
 
@@ -413,24 +404,23 @@ export async function completeMilestone(milestoneId: string, memoryId: string): 
     .eq("id", milestoneId);
 
   if (error) {
-    throw new Error(`Could not complete milestone: ${error.message}`);
+    throw toSupabaseSetupError(new Error(`Could not complete milestone: ${error.message}`));
   }
 }
 
 export async function queueExportJob(familyId: string, target: "google_drive" | "icloud" | "download", format = "zip"): Promise<void> {
-  const { data: auth, error: authError } = await supabase.auth.getUser();
-  if (authError || !auth.user) throw new Error("Must be signed in");
+  const userId = await requireCurrentUserId();
 
   const { error } = await supabase.from("exports").insert({
     family_id: familyId,
-    requested_by: auth.user.id,
+    requested_by: userId,
     target,
     format,
     status: "queued"
   });
 
   if (error) {
-    throw new Error(`Could not queue export: ${error.message}`);
+    throw toSupabaseSetupError(new Error(`Could not queue export: ${error.message}`));
   }
 }
 
@@ -443,7 +433,7 @@ export async function listExportJobs(familyId: string): Promise<ExportJob[]> {
     .limit(20);
 
   if (error) {
-    throw new Error(`Could not load exports: ${error.message}`);
+    throw toSupabaseSetupError(new Error(`Could not load exports: ${error.message}`));
   }
 
   return (data ?? []).map((row) => ({

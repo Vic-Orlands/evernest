@@ -1,24 +1,110 @@
 import { useMemo } from "react";
-import { ActivityIndicator, Pressable, Text, View } from "react-native";
-import { FlashList } from "@shopify/flash-list";
-import { router } from "expo-router";
+import { ActivityIndicator, Pressable, ScrollView, Text, View } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { useQuery } from "@tanstack/react-query";
-import { MemoryCard } from "@/components/memory-card";
-import { EmptyState } from "@/components/empty-state";
+import { MotiView } from "moti";
+import { LinearGradient } from "expo-linear-gradient";
+import { router } from "expo-router";
 import { ChildSwitcher } from "@/components/child-switcher";
-import { listMemories, listOnThisDay } from "@/lib/repositories";
-import { queryKeys } from "@/lib/query-keys";
+import { EmptyState } from "@/components/empty-state";
 import { useWorkspace } from "@/hooks/use-workspace";
 import { useMemoryRealtime } from "@/hooks/use-memory-realtime";
+import { queryKeys } from "@/lib/query-keys";
+import { listMemories, listOnThisDay } from "@/lib/repositories";
+import { gradients, T } from "@/lib/theme";
 import { MemoryItem } from "@/lib/types";
 
-type TimelineRow =
-  | { type: "hero"; id: string }
-  | { type: "header"; id: string; date: string }
-  | { type: "memory"; id: string; memory: MemoryItem };
+const gradientSet = Object.values(gradients);
 
-export default function TimelineScreen() {
-  const { workspace, workspaceLoading, activeChild, setActiveChildId } = useWorkspace();
+function calculateStreak(memories: MemoryItem[]): number {
+  const uniqueDays = Array.from(
+    new Set(memories.map((memory) => new Date(memory.capturedAt).toDateString()))
+  ).map((day) => new Date(day));
+
+  uniqueDays.sort((a, b) => b.getTime() - a.getTime());
+
+  if (uniqueDays.length === 0) return 0;
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  let streak = 0;
+  let pointer = new Date(today);
+
+  for (const day of uniqueDays) {
+    day.setHours(0, 0, 0, 0);
+
+    if (day.getTime() === pointer.getTime()) {
+      streak += 1;
+      pointer.setDate(pointer.getDate() - 1);
+      continue;
+    }
+
+    if (day.getTime() < pointer.getTime()) {
+      break;
+    }
+  }
+
+  return streak;
+}
+
+function monthLabel(dateIso: string): string {
+  return new Date(dateIso).toLocaleDateString(undefined, {
+    month: "long",
+    year: "numeric"
+  });
+}
+
+function MemoryTile({
+  memory,
+  big,
+  index
+}: {
+  memory: MemoryItem;
+  big?: boolean;
+  index: number;
+}) {
+  const gradient = gradientSet[index % gradientSet.length];
+
+  return (
+    <MotiView
+      from={{ opacity: 0, translateY: 10 }}
+      animate={{ opacity: 1, translateY: 0 }}
+      transition={{ type: "timing", duration: 340, delay: index * 35 }}
+      style={{ flex: big ? undefined : 1 }}
+    >
+      <Pressable onPress={() => router.push(`/memory/${memory.id}`)}>
+        <LinearGradient
+          colors={gradient}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={{
+            height: big ? 142 : 92,
+            borderRadius: 16,
+            padding: 12,
+            justifyContent: "space-between",
+            overflow: "hidden"
+          }}
+        >
+          <Text style={{ fontSize: big ? 22 : 16 }}>{memory.tags[0] ? "🌳" : "✨"}</Text>
+          <View>
+            <Text numberOfLines={1} style={{ color: "rgba(255,255,255,0.95)", fontFamily: "DMSans_500Medium", fontSize: big ? 12 : 10 }}>
+              {memory.title}
+            </Text>
+            {big ? (
+              <Text numberOfLines={1} style={{ color: "rgba(255,255,255,0.72)", fontFamily: "DMSans_400Regular", fontSize: 10, marginTop: 2 }}>
+                {new Date(memory.capturedAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
+              </Text>
+            ) : null}
+          </View>
+        </LinearGradient>
+      </Pressable>
+    </MotiView>
+  );
+}
+
+export default function HomeScreen() {
+  const { workspace, workspaceLoading, workspaceError, refetchWorkspace, activeChild, setActiveChildId, user } = useWorkspace();
 
   useMemoryRealtime(workspace?.family.id, activeChild?.id);
 
@@ -34,96 +120,139 @@ export default function TimelineScreen() {
     queryFn: async () => listOnThisDay(workspace!.family.id, activeChild!.id)
   });
 
-  const rows = useMemo(() => {
-    const memories = memoriesQuery.data ?? [];
-    const grouped = memories.reduce<Record<string, MemoryItem[]>>((acc, item) => {
-      const key = new Date(item.capturedAt).toLocaleDateString();
-      acc[key] = acc[key] ? [...acc[key], item] : [item];
+  const sections = useMemo(() => {
+    const grouped = (memoriesQuery.data ?? []).reduce<Record<string, MemoryItem[]>>((acc, memory) => {
+      const key = monthLabel(memory.capturedAt);
+      acc[key] = acc[key] ? [...acc[key], memory] : [memory];
       return acc;
     }, {});
 
-    const output: TimelineRow[] = [{ type: "hero", id: "hero" }];
-    Object.entries(grouped).forEach(([date, items]) => {
-      output.push({ type: "header", id: `h-${date}`, date });
-      items.forEach((memory) => output.push({ type: "memory", id: memory.id, memory }));
-    });
-    return output;
+    return Object.entries(grouped);
   }, [memoriesQuery.data]);
 
-  if (workspaceLoading || memoriesQuery.isLoading) {
+  if (workspaceLoading) {
     return (
-      <View className="flex-1 items-center justify-center bg-canvas-dark">
-        <ActivityIndicator color="#E8B15D" />
-      </View>
+      <SafeAreaView edges={["top"]} className="flex-1 bg-night2">
+        <View className="flex-1 items-center justify-center">
+          <ActivityIndicator color={T.terracotta} />
+        </View>
+      </SafeAreaView>
     );
   }
 
   if (!workspace || !activeChild) {
     return (
-      <View className="flex-1 bg-canvas-dark px-4 pt-14">
-        <EmptyState title="Workspace unavailable" body="Sign in again to bootstrap your family timeline." />
-      </View>
+      <SafeAreaView edges={["top"]} className="flex-1 bg-night2">
+        <ScrollView contentInsetAdjustmentBehavior="automatic" className="flex-1 bg-night2">
+          <View className="px-4 pt-5">
+            <EmptyState
+              title="Workspace unavailable"
+              body={
+                workspaceError instanceof Error
+                  ? workspaceError.message
+                  : "Sign in again to bootstrap your family timeline."
+              }
+            />
+            <Pressable
+              onPress={() => {
+                void refetchWorkspace();
+              }}
+              className="mt-3 border border-night4 px-4 py-3"
+            >
+              <Text className="text-center font-body text-sm text-moon">Retry workspace sync</Text>
+            </Pressable>
+          </View>
+        </ScrollView>
+      </SafeAreaView>
+    );
+  }
+
+  if (memoriesQuery.isLoading) {
+    return (
+      <SafeAreaView edges={["top"]} className="flex-1 bg-night2">
+        <View className="flex-1 items-center justify-center">
+          <ActivityIndicator color={T.terracotta} />
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  const memories = memoriesQuery.data ?? [];
+  const streak = calculateStreak(memories);
+
+  if (memoriesQuery.error) {
+    return (
+      <SafeAreaView edges={["top"]} className="flex-1 bg-night2">
+        <ScrollView contentInsetAdjustmentBehavior="automatic" className="flex-1 bg-night2">
+          <View className="px-4 pt-5">
+            <EmptyState
+              title="Could not load memories"
+              body={memoriesQuery.error instanceof Error ? memoriesQuery.error.message : "Unknown error"}
+            />
+            <Pressable
+              onPress={() => {
+                void memoriesQuery.refetch();
+              }}
+              className="mt-3 border border-night4 px-4 py-3"
+            >
+              <Text className="text-center font-body text-sm text-moon">Retry memories</Text>
+            </Pressable>
+          </View>
+        </ScrollView>
+      </SafeAreaView>
     );
   }
 
   return (
-    <View className="flex-1 bg-canvas-dark px-4 pt-14">
-      <Text className="font-display text-4xl text-ink-dark">EverNest</Text>
-      <Text className="mt-1 font-body text-zinc-400">{workspace.family.name}</Text>
+    <SafeAreaView edges={["top"]} className="flex-1 bg-night2">
+      <ScrollView contentInsetAdjustmentBehavior="automatic" className="flex-1 bg-night2" contentContainerStyle={{ paddingBottom: 120 }}>
+        <View className="px-5 pt-5">
+          <MotiView from={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 400 }}>
+            <Text className="font-body text-xs text-moonDim">Good morning,</Text>
+            <Text className="font-display text-4xl text-cream">{user?.name?.split(" ")[0] ?? "Parent"}</Text>
+          </MotiView>
 
-      <ChildSwitcher childProfiles={workspace.children} activeChildId={activeChild.id} onSelect={setActiveChildId} />
+          <View className="mt-4 rounded-2xl border border-terracotta/40 bg-terracotta/15 px-4 py-3">
+            <Text className="font-bodybold text-sm text-cream">🔥 {streak}-day streak</Text>
+            <Text className="mt-1 font-body text-xs text-blush">
+              {memories.length > 0 ? "You captured something today — keep it going!" : "Capture your first memory today."}
+            </Text>
+          </View>
 
-      <FlashList
-        data={rows}
-        contentContainerStyle={{ paddingTop: 20, paddingBottom: 120 }}
-        keyExtractor={(item) => item.id}
-        renderItem={({ item }) => {
-          if (item.type === "hero") {
-            const onThisDay = onThisDayQuery.data ?? [];
-            const hasTodayMemory = (memoriesQuery.data ?? []).some((memory) => {
-              const date = new Date(memory.capturedAt);
-              const now = new Date();
-              return date.toDateString() === now.toDateString();
-            });
+          <ChildSwitcher childProfiles={workspace.children} activeChildId={activeChild.id} onSelect={setActiveChildId} />
 
-            return (
-              <View className="mb-4 gap-3">
-                {!hasTodayMemory ? (
-                  <View className="rounded-2xl border border-amber/40 bg-amber/10 p-4">
-                    <Text className="font-bodybold text-zinc-100">No memory captured today yet.</Text>
-                    <Text className="mt-1 font-body text-sm text-zinc-300">Add one now to keep your daily streak alive.</Text>
-                    <Pressable onPress={() => router.push("/(tabs)/capture")} className="mt-3 self-start rounded-xl bg-amber px-3 py-2">
-                      <Text className="font-bodybold text-zinc-900">Capture now</Text>
-                    </Pressable>
-                  </View>
-                ) : null}
+          {onThisDayQuery.data?.length ? (
+            <View className="mt-4 rounded-2xl border border-gold/35 bg-gold/10 px-4 py-3">
+              <Text className="font-bodybold text-xs uppercase tracking-[2px] text-gold">On this day</Text>
+              <Pressable onPress={() => router.push(`/memory/${onThisDayQuery.data![0].id}`)}>
+                <Text className="mt-1 font-body text-sm text-cream">{onThisDayQuery.data[0].title}</Text>
+              </Pressable>
+            </View>
+          ) : null}
 
-                {onThisDay.length > 0 ? (
-                  <View className="rounded-2xl border border-zinc-800 bg-zinc-900/70 p-4">
-                    <Text className="font-bodybold text-zinc-100">On This Day</Text>
-                    <Text className="mt-1 font-body text-sm text-zinc-400">{onThisDay[0].title}</Text>
-                    <Pressable onPress={() => router.push(`/memory/${onThisDay[0].id}`)} className="mt-3 self-start rounded-xl border border-zinc-700 px-3 py-2">
-                      <Text className="font-body text-zinc-300">Open memory</Text>
-                    </Pressable>
-                  </View>
-                ) : null}
+          {sections.length === 0 ? (
+            <View className="mt-6">
+              <EmptyState title="No memories yet" body="Open Capture and save your first moment." />
+            </View>
+          ) : null}
+
+          <View className="mt-6 gap-4">
+            {sections.map(([label, items], sectionIndex) => (
+              <View key={label}>
+                <Text className="mb-2 px-1 font-body text-[10px] uppercase tracking-[2.6px] text-terracotta">{label}</Text>
+
+                {items[0] ? <MemoryTile memory={items[0]} big index={sectionIndex} /> : null}
+
+                <View className="mt-2 flex-row gap-2">
+                  {items.slice(1, 4).map((memory, idx) => (
+                    <MemoryTile key={memory.id} memory={memory} index={sectionIndex + idx + 1} />
+                  ))}
+                </View>
               </View>
-            );
-          }
-
-          if (item.type === "header") {
-            return <Text className="mb-3 mt-5 font-bodybold text-xs uppercase tracking-widest text-zinc-500">{item.date}</Text>;
-          }
-
-          return <MemoryCard item={item.memory} onPress={() => router.push(`/memory/${item.memory.id}`)} />;
-        }}
-        ListEmptyComponent={
-          <EmptyState
-            title="No memories yet"
-            body="Use Capture to add your first photo/video with a note and tags."
-          />
-        }
-      />
-    </View>
+            ))}
+          </View>
+        </View>
+      </ScrollView>
+    </SafeAreaView>
   );
 }

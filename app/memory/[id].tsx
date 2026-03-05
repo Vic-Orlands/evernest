@@ -1,28 +1,52 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { ActivityIndicator, Alert, Image, Pressable, ScrollView, Share, Text, TextInput, View } from "react-native";
-import { useLocalSearchParams } from "expo-router";
+import { useLocalSearchParams, router } from "expo-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { LinearGradient } from "expo-linear-gradient";
+import { MotiView } from "moti";
 import { addComment, getMemoryDetails, setReaction } from "@/lib/repositories";
 import { queryKeys } from "@/lib/query-keys";
-import { getExpoAV } from "@/lib/expo-av-optional";
+import { useAudioPlayer } from "expo-audio";
+import { useVideoPlayer, VideoView } from "expo-video";
+import { T, gradients } from "@/lib/theme";
 
 const emojiOptions = ["❤️", "👏", "😂", "🥹", "🔥", "🎉"] as const;
+const gradientSet = Object.values(gradients);
 
 export default function MemoryDetailsScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const memoryId = typeof id === "string" ? id : "";
   const queryClient = useQueryClient();
   const [comment, setComment] = useState("");
-  const [playingVoice, setPlayingVoice] = useState(false);
-  const expoAV = getExpoAV();
-  const VideoComponent = expoAV?.Video;
-  const videoResizeMode = expoAV?.ResizeMode;
+
 
   const detailsQuery = useQuery({
     queryKey: queryKeys.memoryDetails(memoryId),
     enabled: Boolean(memoryId),
     queryFn: async () => getMemoryDetails(memoryId)
   });
+
+  const videoSource = useMemo(() => {
+    if (detailsQuery.data?.memory.mediaType === "video") {
+      return detailsQuery.data.memory.mediaUrl;
+    }
+    return null;
+  }, [detailsQuery.data]);
+
+  const videoPlayer = useVideoPlayer(videoSource, player => {
+    player.loop = true;
+  });
+
+  const audioSource = useMemo(() => {
+    if (detailsQuery.data) {
+      if (detailsQuery.data.memory.mediaType === "voice") return detailsQuery.data.memory.mediaUrl;
+      if (detailsQuery.data.memory.voiceNoteUrl) return detailsQuery.data.memory.voiceNoteUrl;
+    }
+    return null;
+  }, [detailsQuery.data]);
+
+  const audioPlayer = useAudioPlayer(audioSource);
+
 
   const commentMutation = useMutation({
     mutationFn: async () => addComment(memoryId, comment),
@@ -45,6 +69,13 @@ export default function MemoryDetailsScreen() {
     }
   });
 
+  const gradient = useMemo(() => {
+    const code = memoryId
+      .split("")
+      .reduce((acc, char) => acc + char.charCodeAt(0), 0);
+    return gradientSet[code % gradientSet.length];
+  }, [memoryId]);
+
   const handleShare = async () => {
     if (!detailsQuery.data) return;
     const { memory } = detailsQuery.data;
@@ -55,44 +86,29 @@ export default function MemoryDetailsScreen() {
     });
   };
 
-  const playVoice = async () => {
-    const voiceSource =
-      detailsQuery.data?.memory.mediaType === "voice"
-        ? detailsQuery.data.memory.mediaUrl
-        : detailsQuery.data?.memory.voiceNoteUrl;
-
-    if (!voiceSource) return;
-    if (!expoAV) {
-      Alert.alert("Unavailable in Expo Go", "Voice playback requires a development build with native modules.");
-      return;
-    }
-
-    try {
-      setPlayingVoice(true);
-      const { sound } = await expoAV.Audio.Sound.createAsync({ uri: voiceSource }, { shouldPlay: true });
-      sound.setOnPlaybackStatusUpdate((status) => {
-        if (!status.isLoaded || !status.didJustFinish) return;
-        setPlayingVoice(false);
-        void sound.unloadAsync();
-      });
-    } catch {
-      setPlayingVoice(false);
-      Alert.alert("Voice note", "Could not play voice note.");
+  const playVoice = () => {
+    if (!audioSource) return;
+    if (audioPlayer.playing) {
+      audioPlayer.pause();
+    } else {
+      audioPlayer.play();
     }
   };
 
   if (detailsQuery.isLoading) {
     return (
-      <View className="flex-1 items-center justify-center bg-canvas-dark">
-        <ActivityIndicator color="#E8B15D" />
+      <View className="flex-1 items-center justify-center bg-night2">
+        <ActivityIndicator color={T.terracotta} />
       </View>
     );
   }
 
   if (!detailsQuery.data) {
     return (
-      <View className="flex-1 items-center justify-center bg-canvas-dark px-4">
-        <Text className="font-body text-zinc-100">Memory not found.</Text>
+      <View className="flex-1 items-center justify-center bg-night2 px-4">
+        <Text className="font-body text-moon">
+          {detailsQuery.error instanceof Error ? detailsQuery.error.message : "Memory not found."}
+        </Text>
       </View>
     );
   }
@@ -100,87 +116,121 @@ export default function MemoryDetailsScreen() {
   const { memory, comments, reactions } = detailsQuery.data;
 
   return (
-    <ScrollView className="flex-1 bg-canvas-dark px-4 pt-14" contentContainerStyle={{ paddingBottom: 120 }}>
-      <Text className="font-display text-4xl text-ink-dark">{memory.title}</Text>
-      <Text className="mt-2 font-body text-zinc-400">{new Date(memory.capturedAt).toLocaleString()}</Text>
+    <ScrollView contentInsetAdjustmentBehavior="automatic" className="flex-1 bg-night2" contentContainerStyle={{ paddingBottom: 120 }}>
+      <View className="h-[300px] overflow-hidden">
+        {memory.mediaType === "image" && memory.mediaUrl ? (
+          <Image source={{ uri: memory.mediaUrl }} className="h-full w-full" resizeMode="cover" />
+        ) : null}
 
-      {memory.mediaType === "image" ? (
-        <Image source={{ uri: memory.mediaUrl }} className="mt-5 h-56 w-full rounded-2xl" resizeMode="cover" />
-      ) : null}
+        {memory.mediaType === "video" && memory.mediaUrl ? (
+          <VideoView player={videoPlayer} allowsPictureInPicture contentFit="cover" style={{ width: '100%', height: '100%' }} />
+        ) : null}
 
-      {memory.mediaType === "video" ? (
-        VideoComponent && videoResizeMode ? (
-          <VideoComponent
-            source={{ uri: memory.mediaUrl }}
-            className="mt-5 h-56 w-full rounded-2xl"
-            useNativeControls
-            resizeMode={videoResizeMode.COVER}
-          />
-        ) : (
-          <View className="mt-5 h-56 w-full items-center justify-center rounded-2xl border border-zinc-800 bg-zinc-900">
-            <Text className="font-body text-zinc-300">Video playback requires a development build.</Text>
-          </View>
-        )
-      ) : null}
+        {memory.mediaType === "voice" || !memory.mediaUrl ? (
+          <LinearGradient colors={gradient} className="h-full w-full items-center justify-center">
+            <Text className="text-6xl">🎙️</Text>
+            <Text className="mt-2 font-body text-moon">{memory.mediaType === "voice" ? "Voice memory" : "Saved memory"}</Text>
+          </LinearGradient>
+        ) : null}
 
-      <Text className="mt-6 font-body text-base leading-7 text-zinc-200">{memory.note}</Text>
-
-      <View className="mt-5 flex-row flex-wrap gap-2">
-        {memory.tags.map((tag) => (
-          <View key={`${memory.id}-${tag}`} className="rounded-full bg-zinc-800 px-2 py-1">
-            <Text className="font-body text-xs text-zinc-300">#{tag}</Text>
-          </View>
-        ))}
+        <LinearGradient
+          colors={["rgba(0,0,0,0)", "rgba(0,0,0,0.82)"]}
+          style={{ position: "absolute", left: 0, right: 0, bottom: 0, paddingHorizontal: 16, paddingBottom: 16, paddingTop: 40 }}
+        >
+          <Pressable
+            onPress={() => router.back()}
+            className="mb-3 h-8 w-8 items-center justify-center rounded-full border border-white/15 bg-black/45"
+          >
+            <Text className="font-body text-base text-cream">←</Text>
+          </Pressable>
+          <Text className="font-display text-4xl text-cream">{memory.title}</Text>
+          <Text className="mt-1 font-body text-xs text-moonDim">{new Date(memory.capturedAt).toLocaleString()}</Text>
+        </LinearGradient>
       </View>
 
-      {memory.voiceNoteUrl || memory.mediaType === "voice" ? (
-        <Pressable onPress={playVoice} className="mt-4 self-start rounded-xl border border-zinc-700 px-4 py-2">
-          <Text className="font-body text-zinc-200">{playingVoice ? "Playing voice..." : "Play voice note"}</Text>
-        </Pressable>
-      ) : null}
+      <View className="px-5 pt-4">
+        <MotiView from={{ opacity: 0, translateY: 10 }} animate={{ opacity: 1, translateY: 0 }} transition={{ duration: 280 }}>
+          <Text className="font-body text-base leading-7 text-moon">{memory.note}</Text>
+        </MotiView>
 
-      <View className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-900/70 p-4">
-        <Text className="font-bodybold text-zinc-100">React</Text>
-        <View className="mt-3 flex-row flex-wrap gap-2">
-          {emojiOptions.map((emoji) => (
-            <Pressable key={emoji} onPress={() => reactionMutation.mutate(emoji)} className="rounded-full bg-zinc-800 px-3 py-2">
-              <Text className="text-base">{emoji}</Text>
-            </Pressable>
-          ))}
-        </View>
-        <Text className="mt-2 font-body text-xs text-zinc-400">{reactions.length} reactions</Text>
-      </View>
-
-      <View className="mt-4 rounded-2xl border border-zinc-800 bg-zinc-900/70 p-4">
-        <Text className="font-bodybold text-zinc-100">Comments</Text>
-        <View className="mt-3 gap-3">
-          {comments.map((item) => (
-            <View key={item.id} className="rounded-xl border border-zinc-800 bg-zinc-900 p-3">
-              <Text className="font-bodybold text-xs text-zinc-300">{item.userName}</Text>
-              <Text className="mt-1 font-body text-zinc-200">{item.body}</Text>
+        <MotiView
+          from={{ opacity: 0, translateY: 10 }}
+          animate={{ opacity: 1, translateY: 0 }}
+          transition={{ duration: 280, delay: 40 }}
+          className="mt-4 flex-row flex-wrap gap-2"
+        >
+          {memory.tags.map((tag) => (
+            <View key={`${memory.id}-${tag}`} className="rounded-full border border-terracotta/30 bg-terracotta/10 px-3 py-1">
+              <Text className="font-body text-xs text-blush">#{tag}</Text>
             </View>
           ))}
-        </View>
+        </MotiView>
 
-        <TextInput
-          value={comment}
-          onChangeText={setComment}
-          placeholder="Add a comment"
-          placeholderTextColor="#7B8598"
-          className="mt-4 rounded-xl border border-zinc-700 px-3 py-2 font-body text-zinc-100"
-        />
-        <Pressable
-          onPress={() => commentMutation.mutate()}
-          disabled={commentMutation.isPending}
-          className="mt-3 rounded-xl bg-amber px-3 py-2"
+        {memory.voiceNoteUrl || memory.mediaType === "voice" ? (
+          <MotiView from={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 280, delay: 80 }}>
+            <Pressable onPress={playVoice} className="mt-4 self-start rounded-xl border border-night4 bg-night3 px-4 py-2">
+              <Text className="font-body text-moon">{audioPlayer.playing ? "Pause voice note" : "Play voice note"}</Text>
+            </Pressable>
+          </MotiView>
+        ) : null}
+
+        <MotiView
+          from={{ opacity: 0, translateY: 12 }}
+          animate={{ opacity: 1, translateY: 0 }}
+          transition={{ duration: 300, delay: 100 }}
+          className="mt-6 rounded-2xl border border-night4 bg-night3 p-4"
         >
-          <Text className="text-center font-bodybold text-zinc-900">{commentMutation.isPending ? "Sending..." : "Post comment"}</Text>
+          <Text className="font-bodybold text-sm text-cream">React</Text>
+          <View className="mt-3 flex-row flex-wrap gap-2">
+            {emojiOptions.map((emoji) => (
+              <Pressable key={emoji} onPress={() => reactionMutation.mutate(emoji)} className="rounded-full border border-night4 bg-night4/40 px-3 py-2">
+                <Text className="text-base">{emoji}</Text>
+              </Pressable>
+            ))}
+          </View>
+          <Text className="mt-2 font-body text-xs text-moonDim">{reactions.length} reactions</Text>
+        </MotiView>
+
+        <MotiView
+          from={{ opacity: 0, translateY: 12 }}
+          animate={{ opacity: 1, translateY: 0 }}
+          transition={{ duration: 300, delay: 140 }}
+          className="mt-4 rounded-2xl border border-night4 bg-night3 p-4"
+        >
+          <Text className="font-bodybold text-sm text-cream">Comments</Text>
+          <View className="mt-3 gap-3">
+            {comments.length > 0 ? (
+              comments.map((item) => (
+                <View key={item.id} className="rounded-xl border border-night4 bg-night4/40 p-3">
+                  <Text className="font-bodybold text-xs text-moon">{item.userName}</Text>
+                  <Text className="mt-1 font-body text-sm text-moon">{item.body}</Text>
+                </View>
+              ))
+            ) : (
+              <Text className="font-body text-xs text-moonDim">No comments yet.</Text>
+            )}
+          </View>
+
+          <TextInput
+            value={comment}
+            onChangeText={setComment}
+            placeholder="Add a comment"
+            placeholderTextColor="#8A8070"
+            className="mt-4 rounded-xl border border-night4 px-3 py-2 font-body text-moon"
+          />
+          <Pressable
+            onPress={() => commentMutation.mutate()}
+            disabled={commentMutation.isPending || comment.trim().length === 0}
+            className="mt-3 rounded-xl bg-terracotta px-3 py-3"
+          >
+            <Text className="text-center font-bodybold text-sm text-cream">{commentMutation.isPending ? "Sending..." : "Post comment"}</Text>
+          </Pressable>
+        </MotiView>
+
+        <Pressable onPress={handleShare} className="mt-4 rounded-2xl border border-night4 px-4 py-3">
+          <Text className="text-center font-body text-moon">Export via share</Text>
         </Pressable>
       </View>
-
-      <Pressable onPress={handleShare} className="mt-4 rounded-2xl border border-zinc-700 px-4 py-3">
-        <Text className="text-center font-body text-zinc-200">Export via share</Text>
-      </Pressable>
     </ScrollView>
   );
 }

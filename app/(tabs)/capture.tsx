@@ -2,21 +2,21 @@ import { useMemo, useState } from "react";
 import { Alert, Pressable, Text, TextInput, View } from "react-native";
 import * as ImagePicker from "expo-image-picker";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { LinearGradient } from "expo-linear-gradient";
+import { MotiView } from "moti";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { ChildSwitcher } from "@/components/child-switcher";
 import { useWorkspace } from "@/hooks/use-workspace";
 import { completeMilestone, createMemory } from "@/lib/repositories";
 import { queryKeys } from "@/lib/query-keys";
-import { listMilestones } from "@/lib/workspace";
-import { getExpoAV } from "@/lib/expo-av-optional";
+import { listMilestones } from "../../lib/workspace";
+import { useAudioRecorder, RecordingPresets, requestRecordingPermissionsAsync } from "expo-audio";
+import { T } from "@/lib/theme";
 
-type RecordingHandle = {
-  stopAndUnloadAsync: () => Promise<void>;
-  getURI: () => string | null;
-};
 
 export default function CaptureScreen() {
   const queryClient = useQueryClient();
-  const { workspace, workspaceLoading, activeChild, setActiveChildId } = useWorkspace();
+  const { workspace, workspaceLoading, workspaceError, refetchWorkspace, activeChild, setActiveChildId } = useWorkspace();
 
   const [title, setTitle] = useState("");
   const [note, setNote] = useState("");
@@ -25,8 +25,10 @@ export default function CaptureScreen() {
   const [assetType, setAssetType] = useState<"image" | "video" | "voice">("image");
   const [assetMimeType, setAssetMimeType] = useState<string | undefined>(undefined);
   const [voiceUri, setVoiceUri] = useState<string | undefined>(undefined);
-  const [recording, setRecording] = useState<RecordingHandle | null>(null);
+  const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const [selectedMilestoneId, setSelectedMilestoneId] = useState<string | null>(null);
+  const [mode, setMode] = useState<"Photo" | "Video">("Photo");
+  const [shutterFlash, setShutterFlash] = useState(false);
 
   const milestonesQuery = useQuery({
     queryKey: activeChild ? queryKeys.milestones(activeChild.id) : ["milestones", "guest"],
@@ -37,10 +39,7 @@ export default function CaptureScreen() {
   const saveMutation = useMutation({
     mutationFn: async () => {
       if (!workspace || !activeChild) throw new Error("Workspace not ready.");
-
-      if (!assetUri && !voiceUri) {
-        throw new Error("Pick a photo/video or record a voice note.");
-      }
+      if (!assetUri && !voiceUri) throw new Error("Pick a photo/video or record a voice note.");
 
       const tags = tagsInput
         .split(",")
@@ -85,7 +84,7 @@ export default function CaptureScreen() {
   });
 
   const incompleteMilestones = useMemo(
-    () => (milestonesQuery.data ?? []).filter((item) => !item.completedMemoryId).slice(0, 5),
+    () => (milestonesQuery.data ?? []).filter((item) => !item.completedMemoryId).slice(0, 4),
     [milestonesQuery.data]
   );
 
@@ -106,138 +105,192 @@ export default function CaptureScreen() {
 
   const startVoiceRecording = async () => {
     try {
-      const expoAV = getExpoAV();
-      if (!expoAV) {
-        Alert.alert("Unavailable in Expo Go", "Voice recording requires a development build with native modules.");
-        return;
-      }
-
-      const { Audio } = expoAV;
-      const permission = await Audio.requestPermissionsAsync();
+      const permission = await requestRecordingPermissionsAsync();
       if (!permission.granted) {
         Alert.alert("Permission needed", "Microphone permission is required for voice notes.");
         return;
       }
 
-      await Audio.setAudioModeAsync({
-        allowsRecordingIOS: true,
-        playsInSilentModeIOS: true
-      });
-
-      const { recording: newRecording } = await Audio.Recording.createAsync(
-        Audio.RecordingOptionsPresets.HIGH_QUALITY
-      );
-      setRecording(newRecording as unknown as RecordingHandle);
+      await recorder.prepareToRecordAsync();
+      recorder.record();
     } catch (error) {
       Alert.alert("Voice note error", error instanceof Error ? error.message : "Could not start recording.");
     }
   };
 
   const stopVoiceRecording = async () => {
-    if (!recording) return;
-
-    await recording.stopAndUnloadAsync();
-    const uri = recording.getURI();
-    if (uri) {
-      setVoiceUri(uri);
+    if (!recorder.isRecording) return;
+    await recorder.stop();
+    if (recorder.uri) {
+      setVoiceUri(recorder.uri);
     }
-    setRecording(null);
   };
 
-  if (workspaceLoading || !workspace || !activeChild) {
+  const triggerShutter = () => {
+    setShutterFlash(true);
+    setTimeout(() => setShutterFlash(false), 220);
+  };
+
+  if (workspaceLoading) {
     return (
-      <View className="flex-1 items-center justify-center bg-canvas-dark">
-        <Text className="font-body text-zinc-300">Loading workspace...</Text>
-      </View>
+      <SafeAreaView edges={["top"]} className="flex-1 items-center justify-center bg-night2">
+        <Text className="font-body text-moonDim">Loading workspace...</Text>
+      </SafeAreaView>
+    );
+  }
+
+  if (!workspace || !activeChild) {
+    return (
+      <SafeAreaView edges={["top"]} className="flex-1 bg-night2 px-5 pt-5">
+        <Text className="font-display text-3xl text-cream">Workspace unavailable</Text>
+        <Text className="mt-2 font-body text-sm text-moonDim">
+          {workspaceError instanceof Error ? workspaceError.message : "Could not load your family workspace."}
+        </Text>
+        <Pressable
+          onPress={() => {
+            void refetchWorkspace();
+          }}
+          className="mt-4 border border-night4 px-4 py-3"
+        >
+          <Text className="text-center font-body text-sm text-moon">Retry workspace sync</Text>
+        </Pressable>
+      </SafeAreaView>
     );
   }
 
   return (
-    <View className="flex-1 bg-canvas-dark px-4 pt-14">
-      <Text className="font-display text-4xl text-ink-dark">Capture Today</Text>
-      <Text className="mt-1 font-body text-zinc-400">Photo/video + note + voice + milestone context.</Text>
-
-      <ChildSwitcher childProfiles={workspace.children} activeChildId={activeChild.id} onSelect={setActiveChildId} />
-
-      <View className="mt-6 gap-3">
-        <TextInput
-          placeholder="Title (e.g., First school choir)"
-          placeholderTextColor="#7B8598"
-          value={title}
-          onChangeText={setTitle}
-          className="rounded-2xl border border-zinc-700 px-4 py-3 font-body text-zinc-100"
-        />
-        <TextInput
-          multiline
-          numberOfLines={5}
-          textAlignVertical="top"
-          placeholder="Diary note for what happened today..."
-          placeholderTextColor="#7B8598"
-          value={note}
-          onChangeText={setNote}
-          className="rounded-2xl border border-zinc-700 px-4 py-3 font-body text-zinc-100"
-        />
-        <TextInput
-          placeholder="Tags (comma-separated): school, dance, proud"
-          placeholderTextColor="#7B8598"
-          value={tagsInput}
-          onChangeText={setTagsInput}
-          className="rounded-2xl border border-zinc-700 px-4 py-3 font-body text-zinc-100"
-        />
+    <SafeAreaView edges={["top"]} className="flex-1 bg-night2">
+      <View className="px-5 pt-4">
+        <Text className="font-display text-4xl text-cream">Capture</Text>
+        <Text className="mt-1 font-body text-xs text-moonDim">Photo or video memory with diary context.</Text>
+        <ChildSwitcher childProfiles={workspace.children} activeChildId={activeChild.id} onSelect={setActiveChildId} />
       </View>
 
-      <View className="mt-4 flex-row gap-3">
-        <Pressable onPress={() => pickAsset("image")} className="flex-1 rounded-xl border border-zinc-700 px-4 py-3">
-          <Text className="text-center font-body text-zinc-200">Pick photo</Text>
-        </Pressable>
-        <Pressable onPress={() => pickAsset("video")} className="flex-1 rounded-xl border border-zinc-700 px-4 py-3">
-          <Text className="text-center font-body text-zinc-200">Pick video</Text>
-        </Pressable>
-      </View>
+      <View className="mt-4 flex-1 overflow-hidden rounded-t-[28px] border-t border-night4">
+        <LinearGradient colors={["#1A2A1A", "#0F1A28", "#2A1A10"]} style={{ flex: 1, paddingHorizontal: 16, paddingTop: 14 }}>
+          {shutterFlash ? (
+            <MotiView
+              from={{ opacity: 0.6 }}
+              animate={{ opacity: 0 }}
+              transition={{ duration: 220 }}
+              style={{
+                position: "absolute",
+                inset: 0,
+                backgroundColor: "white"
+              }}
+            />
+          ) : null}
 
-      <View className="mt-3 flex-row gap-3">
-        {!recording ? (
-          <Pressable onPress={startVoiceRecording} className="flex-1 rounded-xl border border-zinc-700 px-4 py-3">
-            <Text className="text-center font-body text-zinc-200">Record voice note</Text>
-          </Pressable>
-        ) : (
-          <Pressable onPress={stopVoiceRecording} className="flex-1 rounded-xl bg-amber px-4 py-3">
-            <Text className="text-center font-bodybold text-zinc-900">Stop recording</Text>
-          </Pressable>
-        )}
-      </View>
+          <View className="flex-row justify-between">
+            <View className="rounded-full bg-black/45 px-3 py-1">
+              <Text className="font-body text-[10px] text-moon">📍 Home · Today</Text>
+            </View>
+            <View className="flex-row gap-2">
+              {(["Photo", "Video"] as const).map((value) => (
+                <Pressable
+                  key={value}
+                  onPress={() => setMode(value)}
+                  className={`rounded-full px-3 py-1 ${mode === value ? "bg-terracotta" : "bg-black/45"}`}
+                >
+                  <Text className="font-body text-[10px] text-cream">{value}</Text>
+                </Pressable>
+              ))}
+            </View>
+          </View>
 
-      <Text className="mt-4 font-body text-sm text-zinc-400">
-        Asset: {assetUri ? `${assetType} selected` : "none"} · Voice: {voiceUri ? "attached" : "none"}
-      </Text>
+          <View className="mt-5 flex-1 items-center justify-center">
+            <View className="h-28 w-28 rounded-[16px] border border-terracotta/80" />
+          </View>
 
-      <View className="mt-4 rounded-2xl border border-zinc-800 bg-zinc-900/60 p-4">
-        <Text className="font-bodybold text-zinc-100">Milestone templates</Text>
-        <View className="mt-3 flex-row flex-wrap gap-2">
-          {incompleteMilestones.map((milestone) => {
-            const active = selectedMilestoneId === milestone.id;
-            return (
-              <Pressable
-                key={milestone.id}
-                onPress={() => setSelectedMilestoneId(active ? null : milestone.id)}
-                className={`rounded-full px-3 py-2 ${active ? "bg-amber" : "bg-zinc-800"}`}
-              >
-                <Text className={`${active ? "text-zinc-900" : "text-zinc-200"} font-body text-xs`}>{milestone.label}</Text>
+          <View className="mb-3 rounded-xl border border-white/10 bg-black/35 px-3 py-2">
+            <TextInput
+              value={title}
+              onChangeText={setTitle}
+              placeholder="Title"
+              placeholderTextColor={T.moonDim}
+              className="font-body text-sm text-cream"
+            />
+          </View>
+
+          <View className="mb-3 rounded-xl border border-white/10 bg-black/35 px-3 py-2">
+            <TextInput
+              value={note}
+              onChangeText={setNote}
+              placeholder="Add a note to this memory..."
+              placeholderTextColor={T.moonDim}
+              multiline
+              className="font-body text-sm text-cream"
+            />
+          </View>
+
+          <View className="mb-3 rounded-xl border border-white/10 bg-black/35 px-3 py-2">
+            <TextInput
+              value={tagsInput}
+              onChangeText={setTagsInput}
+              placeholder="Tags: spring, park, first"
+              placeholderTextColor={T.moonDim}
+              className="font-body text-sm text-cream"
+            />
+          </View>
+
+          <View className="mb-3 flex-row gap-2">
+            <Pressable onPress={() => pickAsset("image")} className="flex-1 rounded-xl border border-white/15 bg-black/35 px-3 py-3">
+              <Text className="text-center font-body text-xs text-moon">🎞 Pick photo</Text>
+            </Pressable>
+            <Pressable onPress={() => pickAsset("video")} className="flex-1 rounded-xl border border-white/15 bg-black/35 px-3 py-3">
+              <Text className="text-center font-body text-xs text-moon">🎥 Pick video</Text>
+            </Pressable>
+          </View>
+
+          <View className="mb-3 flex-row gap-2">
+            {!recorder.isRecording ? (
+              <Pressable onPress={startVoiceRecording} className="flex-1 rounded-xl border border-white/15 bg-black/35 px-3 py-3">
+                <Text className="text-center font-body text-xs text-moon">🎤 Voice note</Text>
               </Pressable>
-            );
-          })}
-        </View>
-      </View>
+            ) : (
+              <Pressable onPress={stopVoiceRecording} className="flex-1 rounded-xl bg-terracotta px-3 py-3">
+                <Text className="text-center font-bodybold text-xs text-cream">Stop recording</Text>
+              </Pressable>
+            )}
 
-      <Pressable
-        onPress={() => saveMutation.mutate()}
-        disabled={saveMutation.isPending}
-        className="mt-6 rounded-2xl bg-amber px-4 py-4"
-      >
-        <Text className="text-center font-bodybold text-base text-zinc-900">
-          {saveMutation.isPending ? "Saving..." : "Save memory"}
-        </Text>
-      </Pressable>
-    </View>
+            <Pressable
+              onPress={triggerShutter}
+              className="w-14 items-center justify-center rounded-full border-4 border-white/30 bg-white"
+            >
+              <View className="h-10 w-10 rounded-full bg-white" />
+            </Pressable>
+
+            <Pressable
+              onPress={() => saveMutation.mutate()}
+              disabled={saveMutation.isPending}
+              className="flex-1 rounded-xl bg-terracotta px-3 py-3"
+            >
+              <Text className="text-center font-bodybold text-xs text-cream">
+                {saveMutation.isPending ? "Saving..." : "Save"}
+              </Text>
+            </Pressable>
+          </View>
+
+          <View className="mb-4 flex-row flex-wrap gap-2">
+            {incompleteMilestones.map((milestone) => {
+              const active = selectedMilestoneId === milestone.id;
+              return (
+                <Pressable
+                  key={milestone.id}
+                  onPress={() => setSelectedMilestoneId(active ? null : milestone.id)}
+                  className={`rounded-full px-3 py-2 ${active ? "bg-terracotta/30" : "bg-black/30"}`}
+                >
+                  <Text className={`font-body text-[10px] ${active ? "text-blush" : "text-moonDim"}`}>{milestone.label}</Text>
+                </Pressable>
+              );
+            })}
+          </View>
+
+          <Text className="mb-2 text-center font-body text-[10px] text-moonDim">
+            {assetUri ? `${assetType} selected` : "no asset"} · {voiceUri ? "voice attached" : "no voice"}
+          </Text>
+        </LinearGradient>
+      </View>
+    </SafeAreaView>
   );
 }

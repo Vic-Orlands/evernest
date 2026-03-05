@@ -1,15 +1,17 @@
 import { useState } from "react";
 import { Alert, Pressable, ScrollView, Text, TextInput, View } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { MotiView } from "moti";
 import { useWorkspace } from "@/hooks/use-workspace";
 import { sendFamilyInvite } from "@/lib/collaboration";
 import { queryKeys } from "@/lib/query-keys";
-import { createChild, listFamilyMembers } from "@/lib/workspace";
+import { createChild, listFamilyMembers } from "../../lib/workspace";
 import { Role } from "@/lib/types";
 
 export default function FamilyScreen() {
   const queryClient = useQueryClient();
-  const { workspace, workspaceLoading, refetchWorkspace } = useWorkspace();
+  const { workspace, workspaceLoading, workspaceError, refetchWorkspace } = useWorkspace();
 
   const [email, setEmail] = useState("");
   const [role, setRole] = useState<Role>("editor");
@@ -51,90 +53,140 @@ export default function FamilyScreen() {
     }
   });
 
-  if (workspaceLoading || !workspace) {
+  if (workspaceLoading) {
     return (
-      <View className="flex-1 items-center justify-center bg-canvas-dark">
-        <Text className="font-body text-zinc-300">Loading workspace...</Text>
-      </View>
+      <SafeAreaView edges={["top"]} className="flex-1 bg-night2">
+        <View className="flex-1 items-center justify-center">
+          <Text className="font-body text-moonDim">Loading workspace...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  if (!workspace) {
+    return (
+      <SafeAreaView edges={["top"]} className="flex-1 bg-night2">
+        <ScrollView contentInsetAdjustmentBehavior="automatic" className="flex-1 bg-night2">
+          <View className="px-5 pt-5">
+            <Text className="font-display text-3xl text-cream">Workspace unavailable</Text>
+            <Text className="mt-2 font-body text-sm text-moonDim">
+              {workspaceError instanceof Error ? workspaceError.message : "Could not load your family workspace."}
+            </Text>
+            <Pressable
+              onPress={() => {
+                void refetchWorkspace();
+              }}
+              className="mt-4 border border-night4 px-4 py-3"
+            >
+              <Text className="text-center font-body text-sm text-moon">Retry workspace sync</Text>
+            </Pressable>
+          </View>
+        </ScrollView>
+      </SafeAreaView>
+    );
+  }
+
+  if (membersQuery.error) {
+    return (
+      <SafeAreaView edges={["top"]} className="flex-1 bg-night2">
+        <ScrollView contentInsetAdjustmentBehavior="automatic" className="flex-1 bg-night2">
+          <View className="px-5 pt-5">
+            <Text className="font-display text-3xl text-cream">Could not load family</Text>
+            <Text className="mt-2 font-body text-sm text-moonDim">
+              {membersQuery.error instanceof Error ? membersQuery.error.message : "Unknown error"}
+            </Text>
+            <Pressable
+              onPress={() => {
+                void membersQuery.refetch();
+              }}
+              className="mt-4 border border-night4 px-4 py-3"
+            >
+              <Text className="text-center font-body text-sm text-moon">Retry</Text>
+            </Pressable>
+          </View>
+        </ScrollView>
+      </SafeAreaView>
     );
   }
 
   return (
-    <ScrollView className="flex-1 bg-canvas-dark px-4 pt-14" contentContainerStyle={{ paddingBottom: 120 }}>
-      <Text className="font-display text-4xl text-ink-dark">Family Collaboration</Text>
-      <Text className="mt-1 font-body text-zinc-400">Invite guardians and manage your growing family profile.</Text>
+    <SafeAreaView edges={["top"]} className="flex-1 bg-night2">
+      <ScrollView contentInsetAdjustmentBehavior="automatic" className="flex-1 bg-night2" contentContainerStyle={{ paddingBottom: 120 }}>
+        <View className="px-5 pt-4">
+          <Text className="font-display text-4xl text-cream">Family Circle</Text>
+          <Text className="mt-1 font-body text-xs text-moonDim">Shared access to your child’s memories.</Text>
 
-      <View className="mt-8 rounded-2xl border border-zinc-800 bg-zinc-900/70 p-4">
-        <Text className="font-bodybold text-zinc-100">Invite guardian</Text>
-        <TextInput
-          autoCapitalize="none"
-          keyboardType="email-address"
-          placeholder="guardian@email.com"
-          placeholderTextColor="#7B8598"
-          value={email}
-          onChangeText={setEmail}
-          className="mt-3 rounded-xl border border-zinc-700 px-4 py-3 font-body text-zinc-100"
-        />
+          <View className="mt-5 rounded-2xl bg-night3 p-4">
+            <Text className="font-bodybold text-sm text-cream">Invite guardian</Text>
+            <TextInput
+              autoCapitalize="none"
+              keyboardType="email-address"
+              placeholder="guardian@email.com"
+              placeholderTextColor="#8A8070"
+              value={email}
+              onChangeText={setEmail}
+              className="mt-3 rounded-xl border border-night4 px-4 py-3 font-body text-moon"
+            />
 
-        <View className="mt-3 flex-row gap-2">
-          {(["editor", "viewer"] as const).map((option) => (
-            <Pressable
-              key={option}
-              onPress={() => setRole(option)}
-              className={`rounded-full px-3 py-2 ${role === option ? "bg-amber" : "border border-zinc-700"}`}
-            >
-              <Text className={`${role === option ? "text-zinc-900" : "text-zinc-300"} font-body text-xs uppercase`}>{option}</Text>
+            <View className="mt-3 flex-row gap-2">
+              {(["editor", "viewer"] as const).map((option) => (
+                <Pressable
+                  key={option}
+                  onPress={() => setRole(option)}
+                  className={`rounded-full px-3 py-2 ${role === option ? "bg-terracotta/20" : "border border-night4 bg-night4/40"}`}
+                >
+                  <Text className={`${role === option ? "text-blush" : "text-moonDim"} font-body text-[10px] uppercase`}>{option}</Text>
+                </Pressable>
+              ))}
+            </View>
+
+            <Pressable onPress={() => inviteMutation.mutate()} disabled={inviteMutation.isPending} className="mt-4 rounded-xl bg-terracotta px-4 py-3">
+              <Text className="text-center font-bodybold text-sm text-cream">{inviteMutation.isPending ? "Sending..." : "Send invite link"}</Text>
             </Pressable>
-          ))}
-        </View>
+          </View>
 
-        <Pressable
-          onPress={() => inviteMutation.mutate()}
-          disabled={inviteMutation.isPending}
-          className="mt-4 rounded-xl bg-amber px-4 py-3"
-        >
-          <Text className="text-center font-bodybold text-zinc-900">{inviteMutation.isPending ? "Sending..." : "Send invite"}</Text>
-        </Pressable>
-      </View>
-
-      <View className="mt-5 rounded-2xl border border-zinc-800 bg-zinc-900/70 p-4">
-        <Text className="font-bodybold text-zinc-100">Children</Text>
-        <View className="mt-3 gap-2">
-          {workspace.children.map((child) => (
-            <View key={child.id} className="rounded-xl border border-zinc-800 bg-zinc-900 p-3">
-              <Text className="font-body text-zinc-200">{child.firstName}</Text>
+          <View className="mt-5 rounded-2xl bg-night3 p-4">
+            <Text className="font-bodybold text-sm text-cream">Children</Text>
+            <View className="mt-3 gap-2">
+              {workspace.children.map((child) => (
+                <View key={child.id} className="rounded-xl border border-night4 bg-night4/40 p-3">
+                  <Text className="font-body text-sm text-moon">{child.firstName}</Text>
+                </View>
+              ))}
             </View>
-          ))}
-        </View>
 
-        <TextInput
-          placeholder="Add child name"
-          placeholderTextColor="#7B8598"
-          value={childName}
-          onChangeText={setChildName}
-          className="mt-4 rounded-xl border border-zinc-700 px-4 py-3 font-body text-zinc-100"
-        />
+            <TextInput
+              placeholder="Add child name"
+              placeholderTextColor="#8A8070"
+              value={childName}
+              onChangeText={setChildName}
+              className="mt-4 rounded-xl border border-night4 px-4 py-3 font-body text-moon"
+            />
 
-        <Pressable
-          onPress={() => childMutation.mutate()}
-          disabled={childMutation.isPending}
-          className="mt-3 rounded-xl border border-zinc-700 px-4 py-3"
-        >
-          <Text className="text-center font-body text-zinc-200">{childMutation.isPending ? "Adding..." : "Add child"}</Text>
-        </Pressable>
-      </View>
+            <Pressable onPress={() => childMutation.mutate()} disabled={childMutation.isPending} className="mt-3 rounded-xl border border-night4 px-4 py-3">
+              <Text className="text-center font-body text-sm text-moon">{childMutation.isPending ? "Adding..." : "Add child"}</Text>
+            </Pressable>
+          </View>
 
-      <View className="mt-5 rounded-2xl border border-zinc-800 bg-zinc-900/70 p-4">
-        <Text className="font-bodybold text-zinc-100">Members</Text>
-        <View className="mt-3 gap-2">
-          {(membersQuery.data ?? []).map((member) => (
-            <View key={member.id} className="rounded-xl border border-zinc-800 bg-zinc-900 p-3">
-              <Text className="font-body text-zinc-200">{member.fullName || member.email}</Text>
-              <Text className="mt-1 font-body text-xs uppercase tracking-wide text-zinc-500">{member.role}</Text>
+          <View className="mt-5 rounded-2xl bg-night3 p-4">
+            <Text className="font-bodybold text-sm text-cream">Recent activity</Text>
+            <View className="mt-3 gap-2">
+              {(membersQuery.data ?? []).map((member, index) => (
+                <MotiView
+                  key={member.id}
+                  from={{ opacity: 0, translateY: 8 }}
+                  animate={{ opacity: 1, translateY: 0 }}
+                  transition={{ duration: 280, delay: index * 35 }}
+                  className="rounded-xl border border-night4 bg-night4/40 p-3"
+                >
+                  <Text className="font-body text-sm text-moon">{member.fullName || member.email}</Text>
+                  <Text className="mt-1 font-body text-[10px] uppercase tracking-[1px] text-moonDim">{member.role}</Text>
+                </MotiView>
+              ))}
             </View>
-          ))}
+          </View>
         </View>
-      </View>
-    </ScrollView>
+      </ScrollView>
+    </SafeAreaView>
   );
 }

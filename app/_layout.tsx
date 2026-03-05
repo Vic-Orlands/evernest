@@ -4,11 +4,10 @@ import { Stack } from "expo-router";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { StatusBar } from "expo-status-bar";
-import { LogBox } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { useFonts } from "expo-font";
-import { PlayfairDisplay_700Bold } from "@expo-google-fonts/playfair-display";
-import { Manrope_500Medium, Manrope_700Bold } from "@expo-google-fonts/manrope";
+import { DMSans_400Regular, DMSans_500Medium } from "@expo-google-fonts/dm-sans";
+import { InstrumentSerif_400Regular } from "@expo-google-fonts/instrument-serif";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -20,16 +19,11 @@ const queryClient = new QueryClient({
   }
 });
 
-LogBox.ignoreLogs([
-  // Emitted by current expo-router internals; no app code uses deprecated SafeAreaView.
-  "SafeAreaView has been deprecated"
-]);
-
 export default function RootLayout() {
   const [fontsLoaded] = useFonts({
-    PlayfairDisplay_700Bold,
-    Manrope_500Medium,
-    Manrope_700Bold
+    InstrumentSerif_400Regular,
+    DMSans_400Regular,
+    DMSans_500Medium
   });
 
   if (!fontsLoaded) {
@@ -45,6 +39,7 @@ export default function RootLayout() {
             <Stack.Screen name="(auth)" />
             <Stack.Screen name="(tabs)" />
             <Stack.Screen name="accept-invite" options={{ presentation: "modal" }} />
+            <Stack.Screen name="auth/callback" options={{ presentation: "card" }} />
           </Stack>
         </QueryClientProvider>
       </SafeAreaProvider>

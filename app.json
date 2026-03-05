@@ -21,7 +21,8 @@
       "infoPlist": {
         "NSCameraUsageDescription": "EverNest needs camera access to capture memories.",
         "NSPhotoLibraryUsageDescription": "EverNest needs photo library access to attach memories.",
-        "NSMicrophoneUsageDescription": "EverNest needs microphone access for videos and voice notes."
+        "NSMicrophoneUsageDescription": "EverNest needs microphone access for videos and voice notes.",
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
@@ -45,7 +46,17 @@
       "expo-notifications",
       "expo-camera",
       "expo-font",
-      "expo-sharing"
+      "expo-sharing",
+      [
+        "expo-build-properties",
+        {
+          "ios": {
+            "useFrameworks": "static"
+          }
+        }
+      ],
+      "expo-video",
+      "expo-audio"
     ],
     "experiments": {
       "typedRoutes": true

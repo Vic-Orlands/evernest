@@ -45,6 +45,7 @@ pnpm start
 - `supabase/sql/001_init.sql`
 - `supabase/sql/002_security_and_collab.sql`
 - `supabase/sql/003_exports_storage.sql`
+- `supabase/sql/004_profiles_family_read.sql`
 
 2. Deploy edge functions:
 - `create-invite`

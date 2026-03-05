@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Alert, Pressable, ScrollView, Text, TextInput, View } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import * as Linking from "expo-linking";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useReminders } from "@/hooks/use-reminders";
@@ -13,7 +14,7 @@ import { router } from "expo-router";
 export default function SettingsScreen() {
   const queryClient = useQueryClient();
   const { enabled, supported, scheduleDailyReminder, scheduleCatchUpReminder } = useReminders();
-  const { workspace, workspaceLoading } = useWorkspace();
+  const { workspace, workspaceLoading, workspaceError, refetchWorkspace } = useWorkspace();
 
   const [hour, setHour] = useState("20");
   const [minute, setMinute] = useState("30");
@@ -102,113 +103,143 @@ export default function SettingsScreen() {
     }
   };
 
-  if (workspaceLoading || !workspace) {
+  if (workspaceLoading) {
     return (
-      <View className="flex-1 items-center justify-center bg-canvas-dark">
-        <Text className="font-body text-zinc-300">Loading workspace...</Text>
-      </View>
+      <SafeAreaView edges={["top"]} className="flex-1 bg-night2">
+        <View className="flex-1 items-center justify-center">
+          <Text className="font-body text-moonDim">Loading workspace...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  if (!workspace) {
+    return (
+      <SafeAreaView edges={["top"]} className="flex-1 bg-night2">
+        <ScrollView contentInsetAdjustmentBehavior="automatic" className="flex-1 bg-night2">
+          <View className="px-5 pt-5">
+            <Text className="font-display text-3xl text-cream">Workspace unavailable</Text>
+            <Text className="mt-2 font-body text-sm text-moonDim">
+              {workspaceError instanceof Error ? workspaceError.message : "Could not load your family workspace."}
+            </Text>
+            <Pressable
+              onPress={() => {
+                void refetchWorkspace();
+              }}
+              className="mt-4 border border-night4 px-4 py-3"
+            >
+              <Text className="text-center font-body text-sm text-moon">Retry workspace sync</Text>
+            </Pressable>
+          </View>
+        </ScrollView>
+      </SafeAreaView>
+    );
+  }
+
+  if (reminderQuery.error || exportsQuery.error) {
+    const message = reminderQuery.error instanceof Error
+      ? reminderQuery.error.message
+      : exportsQuery.error instanceof Error
+        ? exportsQuery.error.message
+        : "Unknown error";
+
+    return (
+      <SafeAreaView edges={["top"]} className="flex-1 bg-night2">
+        <ScrollView contentInsetAdjustmentBehavior="automatic" className="flex-1 bg-night2">
+          <View className="px-5 pt-5">
+            <Text className="font-display text-3xl text-cream">Could not load settings</Text>
+            <Text className="mt-2 font-body text-sm text-moonDim">{message}</Text>
+            <Pressable
+              onPress={() => {
+                void reminderQuery.refetch();
+                void exportsQuery.refetch();
+              }}
+              className="mt-4 border border-night4 px-4 py-3"
+            >
+              <Text className="text-center font-body text-sm text-moon">Retry</Text>
+            </Pressable>
+          </View>
+        </ScrollView>
+      </SafeAreaView>
     );
   }
 
   return (
-    <ScrollView className="flex-1 bg-canvas-dark px-4 pt-14" contentContainerStyle={{ paddingBottom: 120 }}>
-      <Text className="font-display text-4xl text-ink-dark">Settings</Text>
-      <Text className="mt-1 font-body text-zinc-400">Notifications, exports, billing, and account security.</Text>
+    <SafeAreaView edges={["top"]} className="flex-1 bg-night2">
+      <ScrollView contentInsetAdjustmentBehavior="automatic" className="flex-1 bg-night2" contentContainerStyle={{ paddingBottom: 120 }}>
+        <View className="px-5 pt-4">
+          <Text className="font-display text-4xl text-cream">Settings</Text>
+          <Text className="mt-1 font-body text-xs text-moonDim">Notifications, exports, billing, and account security.</Text>
 
-      <View className="mt-8 rounded-2xl border border-zinc-800 bg-zinc-900/70 p-4">
-        <Text className="font-bodybold text-zinc-100">Daily reminder time</Text>
-        <Text className="mt-2 font-body text-sm text-zinc-300">
-          {supported ? `Permission: ${enabled ? "Granted" : "Not granted"}` : "Notifications require a development build."}
-        </Text>
+          <View className="mt-5 rounded-2xl bg-night3 p-4">
+            <Text className="font-bodybold text-sm text-cream">Daily reminder</Text>
+            <Text className="mt-1 font-body text-xs text-moonDim">
+              {supported ? `Permission: ${enabled ? "Granted" : "Not granted"}` : "Notifications need a development build."}
+            </Text>
+            <View className="mt-3 flex-row gap-2">
+              <TextInput
+                keyboardType="number-pad"
+                value={hour}
+                onChangeText={setHour}
+                placeholder="Hour"
+                placeholderTextColor="#8A8070"
+                className="flex-1 rounded-xl border border-night4 px-3 py-2 font-body text-moon"
+              />
+              <TextInput
+                keyboardType="number-pad"
+                value={minute}
+                onChangeText={setMinute}
+                placeholder="Minute"
+                placeholderTextColor="#8A8070"
+                className="flex-1 rounded-xl border border-night4 px-3 py-2 font-body text-moon"
+              />
+            </View>
+            <Pressable onPress={() => reminderMutation.mutate()} disabled={reminderMutation.isPending || !supported} className="mt-3 rounded-xl bg-terracotta px-3 py-3">
+              <Text className="text-center font-bodybold text-sm text-cream">{reminderMutation.isPending ? "Saving..." : "Save reminder"}</Text>
+            </Pressable>
+          </View>
 
-        <View className="mt-4 flex-row gap-3">
-          <TextInput
-            keyboardType="number-pad"
-            value={hour}
-            onChangeText={setHour}
-            placeholder="Hour"
-            placeholderTextColor="#7B8598"
-            className="flex-1 rounded-xl border border-zinc-700 px-4 py-3 font-body text-zinc-100"
-          />
-          <TextInput
-            keyboardType="number-pad"
-            value={minute}
-            onChangeText={setMinute}
-            placeholder="Minute"
-            placeholderTextColor="#7B8598"
-            className="flex-1 rounded-xl border border-zinc-700 px-4 py-3 font-body text-zinc-100"
-          />
-        </View>
+          <View className="mt-5 rounded-2xl bg-night3 p-4">
+            <Text className="font-bodybold text-sm text-cream">Billing</Text>
+            <Pressable onPress={() => billingMutation.mutate()} disabled={billingMutation.isPending} className="mt-3 rounded-xl border border-night4 px-3 py-3">
+              <Text className="text-center font-body text-sm text-moon">{billingMutation.isPending ? "Opening checkout..." : "Open checkout"}</Text>
+            </Pressable>
+          </View>
 
-        <Pressable
-          onPress={() => reminderMutation.mutate()}
-          disabled={reminderMutation.isPending || !supported}
-          className="mt-4 rounded-xl bg-amber px-4 py-3"
-        >
-          <Text className="text-center font-bodybold text-zinc-900">{reminderMutation.isPending ? "Saving..." : "Save reminder"}</Text>
-        </Pressable>
-      </View>
+          <View className="mt-5 rounded-2xl bg-night3 p-4">
+            <Text className="font-bodybold text-sm text-cream">Exports</Text>
+            <View className="mt-3 gap-2">
+              <Pressable onPress={() => exportMutation.mutate("google_drive")} className="rounded-xl border border-night4 px-3 py-3">
+                <Text className="text-center font-body text-sm text-moon">Queue Google Drive export</Text>
+              </Pressable>
+              <Pressable onPress={() => exportMutation.mutate("icloud")} className="rounded-xl border border-night4 px-3 py-3">
+                <Text className="text-center font-body text-sm text-moon">Queue iCloud export</Text>
+              </Pressable>
+            </View>
 
-      <View className="mt-5 rounded-2xl border border-zinc-800 bg-zinc-900/70 p-4">
-        <Text className="font-bodybold text-zinc-100">Billing</Text>
-        <Text className="mt-2 font-body text-sm text-zinc-300">Upgrade storage and capsule limits.</Text>
-        <Pressable
-          onPress={() => billingMutation.mutate()}
-          disabled={billingMutation.isPending}
-          className="mt-4 rounded-xl border border-zinc-700 px-4 py-3"
-        >
-          <Text className="text-center font-body text-zinc-200">{billingMutation.isPending ? "Opening checkout..." : "Open checkout"}</Text>
-        </Pressable>
-      </View>
+            <View className="mt-3 gap-2">
+              {(exportsQuery.data ?? []).slice(0, 4).map((job) => {
+                const resultUrl = job.resultUrl;
+                return (
+                  <View key={job.id} className="rounded-xl border border-night4 bg-night4/40 p-3">
+                    <Text className="font-body text-xs text-moon">{job.target} · {job.status}</Text>
+                    <Text className="mt-1 font-body text-[10px] text-moonDim">{new Date(job.createdAt).toLocaleString()}</Text>
+                    {resultUrl ? (
+                      <Pressable onPress={() => void Linking.openURL(resultUrl)} className="mt-2 self-start rounded-lg border border-night4 px-3 py-2">
+                        <Text className="font-body text-[10px] text-moon">Open link</Text>
+                      </Pressable>
+                    ) : null}
+                  </View>
+                );
+              })}
+            </View>
+          </View>
 
-      <View className="mt-5 rounded-2xl border border-zinc-800 bg-zinc-900/70 p-4">
-        <Text className="font-bodybold text-zinc-100">Exports</Text>
-        <Text className="mt-2 font-body text-sm text-zinc-300">Queue memory package exports to external platforms.</Text>
-        <View className="mt-4 gap-2">
-          <Pressable
-            onPress={() => exportMutation.mutate("google_drive")}
-            disabled={exportMutation.isPending}
-            className="rounded-xl border border-zinc-700 px-4 py-3"
-          >
-            <Text className="text-center font-body text-zinc-200">Queue Google Drive export</Text>
-          </Pressable>
-          <Pressable
-            onPress={() => exportMutation.mutate("icloud")}
-            disabled={exportMutation.isPending}
-            className="rounded-xl border border-zinc-700 px-4 py-3"
-          >
-            <Text className="text-center font-body text-zinc-200">Queue iCloud export</Text>
-          </Pressable>
-          <Pressable
-            onPress={() => exportMutation.mutate("download")}
-            disabled={exportMutation.isPending}
-            className="rounded-xl border border-zinc-700 px-4 py-3"
-          >
-            <Text className="text-center font-body text-zinc-200">Queue direct download export</Text>
+          <Pressable onPress={logout} className="mt-6 rounded-xl border border-night4 px-4 py-3">
+            <Text className="text-center font-body text-sm text-moon">Sign out</Text>
           </Pressable>
         </View>
-
-        <View className="mt-4 gap-2">
-          {(exportsQuery.data ?? []).slice(0, 4).map((job) => {
-            const resultUrl = job.resultUrl;
-            return (
-              <View key={job.id} className="rounded-xl border border-zinc-800 bg-zinc-900 p-3">
-                <Text className="font-body text-sm text-zinc-200">{job.target} · {job.status}</Text>
-                <Text className="mt-1 font-body text-xs text-zinc-500">{new Date(job.createdAt).toLocaleString()}</Text>
-                {resultUrl ? (
-                  <Pressable onPress={() => void Linking.openURL(resultUrl)} className="mt-2 self-start rounded-lg border border-zinc-700 px-3 py-2">
-                    <Text className="font-body text-xs text-zinc-300">Open download link</Text>
-                  </Pressable>
-                ) : null}
-              </View>
-            );
-          })}
-        </View>
-      </View>
-
-      <Pressable onPress={logout} className="mt-6 rounded-2xl border border-zinc-600 px-4 py-3">
-        <Text className="text-center font-body text-zinc-200">Sign out</Text>
-      </Pressable>
-    </ScrollView>
+      </ScrollView>
+    </SafeAreaView>
   );
 }
