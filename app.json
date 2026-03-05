@@ -1,0 +1,61 @@
+{
+  "expo": {
+    "name": "EverNest",
+    "slug": "evernest",
+    "scheme": "evernest",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0B0E14"
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.evernest.app",
+      "infoPlist": {
+        "NSCameraUsageDescription": "EverNest needs camera access to capture memories.",
+        "NSPhotoLibraryUsageDescription": "EverNest needs photo library access to attach memories.",
+        "NSMicrophoneUsageDescription": "EverNest needs microphone access for videos and voice notes."
+      }
+    },
+    "android": {
+      "package": "com.evernest.app",
+      "permissions": [
+        "CAMERA",
+        "READ_MEDIA_IMAGES",
+        "READ_MEDIA_VIDEO",
+        "RECORD_AUDIO",
+        "POST_NOTIFICATIONS",
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO"
+      ]
+    },
+    "web": {
+      "bundler": "metro"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      "expo-notifications",
+      "expo-camera",
+      "expo-font",
+      "expo-sharing"
+    ],
+    "experiments": {
+      "typedRoutes": true
+    },
+    "extra": {
+      "eas": {
+        "projectId": "1edbd1ff-9282-4ef2-a1c3-c8e6c64d0e70"
+      },
+      "router": {}
+    },
+    "owner": "vic-orlands"
+  }
+}
