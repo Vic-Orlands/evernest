@@ -624,14 +624,17 @@ export default function HomeScreen() {
                 <Text className="font-bodybold text-sm text-cream">
                   Milestones in progress
                 </Text>
-                <Text className="font-body text-xs text-moonDim">
-                  {incompleteMilestones.length} open
-                </Text>
+                <Pressable onPress={() => router.push(`/milestones/${activeChild.id}`)}>
+                  <Text style={{ fontFamily: "DMSans_400Regular", fontSize: 12, color: T.terracotta }}>
+                    View all →
+                  </Text>
+                </Pressable>
               </View>
               <View className="mt-3 gap-2">
                 {incompleteMilestones.map((milestone) => (
-                  <View
+                  <Pressable
                     key={milestone.id}
+                    onPress={() => router.push(`/milestones/${activeChild.id}`)}
                     style={{
                       borderWidth: 1,
                       borderColor: T.night4,
@@ -649,10 +652,11 @@ export default function HomeScreen() {
                       size={16}
                       color={T.gold}
                     />
-                    <Text className="font-body text-sm text-moon">
+                    <Text style={{ flex: 1 }} className="font-body text-sm text-moon">
                       {milestone.label}
                     </Text>
-                  </View>
+                    <MaterialCommunityIcons name="chevron-right" size={16} color={T.moonDim} />
+                  </Pressable>
                 ))}
               </View>
             </View>

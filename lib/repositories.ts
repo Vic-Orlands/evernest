@@ -199,7 +199,10 @@ export async function createMemory(input: CreateMemoryInput): Promise<string> {
 
   const userId = await requireCurrentUserId();
 
-  const memoryId = crypto.randomUUID();
+  const memoryId = "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    return (c === "x" ? r : (r & 0x3) | 0x8).toString(16);
+  });
   const mediaExt = extensionFromUri(input.mediaUri, input.mediaType === "video" ? "mp4" : "jpg");
   const mediaPath = `${validated.familyId}/${validated.childId}/${memoryId}-main.${mediaExt}`;
 

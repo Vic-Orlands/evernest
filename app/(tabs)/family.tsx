@@ -8,8 +8,8 @@ import { useWorkspace } from "@/hooks/use-workspace";
 import { sendFamilyInvite } from "@/lib/collaboration";
 import { sendNudge } from "@/lib/notifications";
 import { queryKeys } from "@/lib/query-keys";
-import { createChild, listFamilyMembers } from "../../lib/workspace";
-import { Role } from "@/lib/types";
+import { createChild, deleteChild, listFamilyMembers, updateChild } from "@/lib/workspace";
+import { ChildProfile, Role } from "@/lib/types";
 import { T } from "@/lib/theme";
 
 const roleMeta: Record<Role, { label: string; color: string; icon: keyof typeof MaterialCommunityIcons.glyphMap }> = {
@@ -19,6 +19,163 @@ const roleMeta: Record<Role, { label: string; color: string; icon: keyof typeof 
 };
 
 const avatarColors = [T.terracotta, T.sage, T.gold, "#8B9CF7", T.blush, T.sageLight];
+
+function ChildCard({
+  child,
+  index,
+  canManage,
+  onUpdate,
+  onDelete
+}: {
+  child: ChildProfile;
+  index: number;
+  canManage: boolean;
+  onUpdate: (childId: string, firstName: string, birthDate: string | null) => void;
+  onDelete: (childId: string) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [editName, setEditName] = useState(child.firstName);
+  const [editBirthDate, setEditBirthDate] = useState(child.birthDate ?? "");
+  const color = avatarColors[index % avatarColors.length];
+
+  return (
+    <View
+      style={{
+        borderWidth: 1,
+        borderColor: T.night4,
+        backgroundColor: "rgba(46,38,32,0.40)",
+        borderRadius: 14,
+        overflow: "hidden"
+      }}
+    >
+      <View style={{ padding: 14, flexDirection: "row", alignItems: "center", gap: 12 }}>
+        <View
+          style={{
+            width: 40,
+            height: 40,
+            borderRadius: 14,
+            backgroundColor: `${color}25`,
+            borderWidth: 1.5,
+            borderColor: `${color}35`,
+            alignItems: "center",
+            justifyContent: "center"
+          }}
+        >
+          <Text style={{ fontFamily: "DMSans_500Medium", fontSize: 16, color }}>
+            {child.firstName.slice(0, 1).toUpperCase()}
+          </Text>
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={{ fontFamily: "DMSans_500Medium", fontSize: 14, color: T.moon }}>{child.firstName}</Text>
+          <Text style={{ fontFamily: "DMSans_400Regular", fontSize: 10, color: T.moonDim, marginTop: 2 }}>
+            {child.birthDate ? new Date(child.birthDate).toDateString() : "Birth date not set"}
+          </Text>
+        </View>
+        {canManage ? (
+          <View style={{ flexDirection: "row", gap: 6 }}>
+            <Pressable
+              onPress={() => { setEditing(!editing); setEditName(child.firstName); setEditBirthDate(child.birthDate ?? ""); }}
+              style={{
+                width: 32,
+                height: 32,
+                borderRadius: 10,
+                backgroundColor: editing ? "rgba(196,98,58,0.20)" : "rgba(46,38,32,0.50)",
+                borderWidth: 1,
+                borderColor: editing ? "rgba(196,98,58,0.40)" : T.night4,
+                alignItems: "center",
+                justifyContent: "center"
+              }}
+            >
+              <MaterialCommunityIcons name={editing ? "close" : "pencil-outline"} size={14} color={editing ? T.terracotta : T.moonDim} />
+            </Pressable>
+            <Pressable
+              onPress={() => {
+                Alert.alert(
+                  "Remove child",
+                  `Are you sure you want to remove ${child.firstName}? This will also remove all associated memories.`,
+                  [
+                    { text: "Cancel", style: "cancel" },
+                    { text: "Remove", style: "destructive", onPress: () => onDelete(child.id) }
+                  ]
+                );
+              }}
+              style={{
+                width: 32,
+                height: 32,
+                borderRadius: 10,
+                backgroundColor: "rgba(185,64,53,0.10)",
+                borderWidth: 1,
+                borderColor: "rgba(185,64,53,0.25)",
+                alignItems: "center",
+                justifyContent: "center"
+              }}
+            >
+              <MaterialCommunityIcons name="trash-can-outline" size={14} color="#E85A4F" />
+            </Pressable>
+          </View>
+        ) : null}
+      </View>
+
+      {editing && canManage ? (
+        <MotiView
+          from={{ opacity: 0, translateY: -6 }}
+          animate={{ opacity: 1, translateY: 0 }}
+          transition={{ type: "timing", duration: 250 }}
+          style={{ paddingHorizontal: 14, paddingBottom: 14, gap: 8 }}
+        >
+          <TextInput
+            value={editName}
+            onChangeText={setEditName}
+            placeholder="Child name"
+            placeholderTextColor={T.moonDim}
+            style={{
+              borderWidth: 1,
+              borderColor: T.night4,
+              paddingHorizontal: 14,
+              paddingVertical: 10,
+              fontFamily: "DMSans_400Regular",
+              fontSize: 13,
+              color: T.moon,
+              borderRadius: 12,
+              backgroundColor: "rgba(46,38,32,0.25)"
+            }}
+          />
+          <TextInput
+            value={editBirthDate}
+            onChangeText={setEditBirthDate}
+            placeholder="Birth date (YYYY-MM-DD)"
+            placeholderTextColor={T.moonDim}
+            style={{
+              borderWidth: 1,
+              borderColor: T.night4,
+              paddingHorizontal: 14,
+              paddingVertical: 10,
+              fontFamily: "DMSans_400Regular",
+              fontSize: 13,
+              color: T.moon,
+              borderRadius: 12,
+              backgroundColor: "rgba(46,38,32,0.25)"
+            }}
+          />
+          <Pressable
+            onPress={() => {
+              onUpdate(child.id, editName, editBirthDate || null);
+              setEditing(false);
+            }}
+            style={{
+              backgroundColor: T.terracotta,
+              paddingHorizontal: 14,
+              paddingVertical: 12,
+              borderRadius: 12
+            }}
+          >
+            <Text style={{ textAlign: "center", fontFamily: "DMSans_500Medium", fontSize: 13, color: T.cream }}>Save changes</Text>
+          </Pressable>
+        </MotiView>
+      ) : null}
+    </View>
+  );
+}
 
 export default function FamilyScreen() {
   const queryClient = useQueryClient();
@@ -39,10 +196,11 @@ export default function FamilyScreen() {
   const inviteMutation = useMutation({
     mutationFn: async () => {
       if (!workspace) throw new Error("Workspace unavailable");
+      if (!email.trim() || !email.includes("@")) throw new Error("Enter a valid email address.");
       await sendFamilyInvite({ familyId: workspace.family.id, email, role });
     },
     onSuccess: async () => {
-      Alert.alert("Invite sent", "A secure invite email has been sent.");
+      Alert.alert("Invite sent ✉️", "A beautiful invite email has been sent via Resend.");
       setEmail("");
       await queryClient.invalidateQueries({ queryKey: queryKeys.familyMembers(workspace!.family.id) });
     },
@@ -66,6 +224,32 @@ export default function FamilyScreen() {
     }
   });
 
+  const updateChildMutation = useMutation({
+    mutationFn: async ({ childId, firstName, birthDate }: { childId: string; firstName: string; birthDate: string | null }) => {
+      await updateChild(childId, { firstName, birthDate });
+    },
+    onSuccess: async () => {
+      await refetchWorkspace();
+      Alert.alert("Child updated", "Profile has been saved.");
+    },
+    onError: (error) => {
+      Alert.alert("Could not update child", error instanceof Error ? error.message : "Unknown error");
+    }
+  });
+
+  const deleteChildMutation = useMutation({
+    mutationFn: async (childId: string) => {
+      await deleteChild(childId);
+    },
+    onSuccess: async () => {
+      await refetchWorkspace();
+      Alert.alert("Child removed", "The child profile has been removed.");
+    },
+    onError: (error) => {
+      Alert.alert("Could not remove child", error instanceof Error ? error.message : "Unknown error");
+    }
+  });
+
   const handleNudge = async (targetUserId: string) => {
     try {
       const senderName = user?.name?.split(" ")[0] ?? "Someone";
@@ -85,10 +269,12 @@ export default function FamilyScreen() {
     const members = membersQuery.data ?? [];
     return {
       total: members.length,
-      editors: members.filter((member) => member.role === "owner" || member.role === "editor").length,
-      viewers: members.filter((member) => member.role === "viewer").length
+      editors: members.filter((m) => m.role === "owner" || m.role === "editor").length,
+      viewers: members.filter((m) => m.role === "viewer").length
     };
   }, [membersQuery.data]);
+
+  /* ---- Early returns ---- */
 
   if (workspaceLoading) {
     return (
@@ -109,10 +295,7 @@ export default function FamilyScreen() {
             <Text className="mt-2 font-body text-sm text-moonDim">
               {workspaceError instanceof Error ? workspaceError.message : "Could not load your family workspace."}
             </Text>
-            <Pressable
-              onPress={() => { void refetchWorkspace(); }}
-              style={{ marginTop: 16, borderWidth: 1, borderColor: T.night4, paddingHorizontal: 16, paddingVertical: 12, borderRadius: 14 }}
-            >
+            <Pressable onPress={() => { void refetchWorkspace(); }} style={{ marginTop: 16, borderWidth: 1, borderColor: T.night4, paddingHorizontal: 16, paddingVertical: 12, borderRadius: 14 }}>
               <Text className="text-center font-body text-sm text-moon">Retry workspace sync</Text>
             </Pressable>
           </View>
@@ -127,13 +310,8 @@ export default function FamilyScreen() {
         <ScrollView contentInsetAdjustmentBehavior="automatic" className="flex-1 bg-night2">
           <View className="px-5 pt-5">
             <Text className="font-display text-3xl text-cream">Could not load family</Text>
-            <Text className="mt-2 font-body text-sm text-moonDim">
-              {membersQuery.error instanceof Error ? membersQuery.error.message : "Unknown error"}
-            </Text>
-            <Pressable
-              onPress={() => { void membersQuery.refetch(); }}
-              style={{ marginTop: 16, borderWidth: 1, borderColor: T.night4, paddingHorizontal: 16, paddingVertical: 12, borderRadius: 14 }}
-            >
+            <Text className="mt-2 font-body text-sm text-moonDim">{membersQuery.error instanceof Error ? membersQuery.error.message : "Unknown error"}</Text>
+            <Pressable onPress={() => { void membersQuery.refetch(); }} style={{ marginTop: 16, borderWidth: 1, borderColor: T.night4, paddingHorizontal: 16, paddingVertical: 12, borderRadius: 14 }}>
               <Text className="text-center font-body text-sm text-moon">Retry</Text>
             </Pressable>
           </View>
@@ -158,56 +336,30 @@ export default function FamilyScreen() {
 
           {/* Stats */}
           <View style={{ marginTop: 16, flexDirection: "row", gap: 12 }}>
-            <View
-              style={{
-                flex: 1,
-                borderWidth: 1,
-                borderColor: T.night4,
-                backgroundColor: T.night3,
-                paddingHorizontal: 16,
-                paddingVertical: 16,
-                borderRadius: 16
-              }}
-            >
-              <Text style={{ fontFamily: "DMSans_400Regular", fontSize: 10, color: T.moonDim, textTransform: "uppercase", letterSpacing: 2 }}>
-                Your role
-              </Text>
+            <View style={{ flex: 1, borderWidth: 1, borderColor: T.night4, backgroundColor: T.night3, paddingHorizontal: 16, paddingVertical: 16, borderRadius: 16 }}>
+              <Text style={{ fontFamily: "DMSans_400Regular", fontSize: 10, color: T.moonDim, textTransform: "uppercase", letterSpacing: 2 }}>Your role</Text>
               <Text className="mt-2 font-display text-3xl text-cream">{roleMeta[workspace.role].label}</Text>
             </View>
-            <View
-              style={{
-                flex: 1,
-                borderWidth: 1,
-                borderColor: T.night4,
-                backgroundColor: T.night3,
-                paddingHorizontal: 16,
-                paddingVertical: 16,
-                borderRadius: 16
-              }}
-            >
-              <Text style={{ fontFamily: "DMSans_400Regular", fontSize: 10, color: T.moonDim, textTransform: "uppercase", letterSpacing: 2 }}>
-                Members
-              </Text>
+            <View style={{ flex: 1, borderWidth: 1, borderColor: T.night4, backgroundColor: T.night3, paddingHorizontal: 16, paddingVertical: 16, borderRadius: 16 }}>
+              <Text style={{ fontFamily: "DMSans_400Regular", fontSize: 10, color: T.moonDim, textTransform: "uppercase", letterSpacing: 2 }}>Members</Text>
               <Text className="mt-2 font-display text-3xl text-cream">{counts.total}</Text>
             </View>
           </View>
 
           {/* Invite section */}
-          <View
-            style={{
-              marginTop: 20,
-              borderWidth: 1,
-              borderColor: T.night4,
-              backgroundColor: T.night3,
-              paddingHorizontal: 16,
-              paddingVertical: 16,
-              borderRadius: 16
-            }}
-          >
-            <Text className="font-bodybold text-sm text-cream">Invite guardian</Text>
-            <Text className="mt-1 font-body text-xs text-moonDim">
-              {canManageFamily ? "Send a role-based invite link by email." : "Only owners and editors can send invites."}
-            </Text>
+          <View style={{ marginTop: 20, borderWidth: 1, borderColor: T.night4, backgroundColor: T.night3, paddingHorizontal: 16, paddingVertical: 16, borderRadius: 16 }}>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 10 }}>
+              <View style={{ width: 34, height: 34, borderRadius: 10, backgroundColor: "rgba(196,98,58,0.12)", alignItems: "center", justifyContent: "center" }}>
+                <MaterialCommunityIcons name="email-plus-outline" size={16} color={T.terracotta} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text className="font-bodybold text-sm text-cream">Invite guardian</Text>
+                <Text style={{ fontFamily: "DMSans_400Regular", fontSize: 10, color: T.moonDim, marginTop: 1 }}>
+                  {canManageFamily ? "Send a role-based invite via Resend." : "Only owners and editors can send invites."}
+                </Text>
+              </View>
+            </View>
+
             <TextInput
               autoCapitalize="none"
               keyboardType="email-address"
@@ -217,7 +369,6 @@ export default function FamilyScreen() {
               onChangeText={setEmail}
               editable={canManageFamily}
               style={{
-                marginTop: 12,
                 borderWidth: 1,
                 borderColor: T.night4,
                 paddingHorizontal: 16,
@@ -245,16 +396,7 @@ export default function FamilyScreen() {
                     backgroundColor: role === option ? "rgba(196,98,58,0.20)" : "rgba(46,38,32,0.40)"
                   }}
                 >
-                  <Text
-                    style={{
-                      fontFamily: "DMSans_400Regular",
-                      fontSize: 10,
-                      textTransform: "uppercase",
-                      color: role === option ? T.blush : T.moonDim
-                    }}
-                  >
-                    {option}
-                  </Text>
+                  <Text style={{ fontFamily: "DMSans_400Regular", fontSize: 10, textTransform: "uppercase", color: role === option ? T.blush : T.moonDim }}>{option}</Text>
                 </Pressable>
               ))}
             </View>
@@ -262,14 +404,7 @@ export default function FamilyScreen() {
             <Pressable
               onPress={() => inviteMutation.mutate()}
               disabled={inviteMutation.isPending || !canManageFamily}
-              style={{
-                marginTop: 14,
-                backgroundColor: T.terracotta,
-                paddingHorizontal: 16,
-                paddingVertical: 14,
-                borderRadius: 14,
-                opacity: !canManageFamily ? 0.5 : 1
-              }}
+              style={{ marginTop: 14, backgroundColor: T.terracotta, paddingHorizontal: 16, paddingVertical: 14, borderRadius: 14, opacity: !canManageFamily ? 0.5 : 1 }}
             >
               <Text style={{ textAlign: "center", fontFamily: "DMSans_500Medium", fontSize: 14, color: T.cream }}>
                 {inviteMutation.isPending ? "Sending..." : "Send invite link"}
@@ -277,59 +412,27 @@ export default function FamilyScreen() {
             </Pressable>
           </View>
 
-          {/* Children */}
-          <View
-            style={{
-              marginTop: 20,
-              borderWidth: 1,
-              borderColor: T.night4,
-              backgroundColor: T.night3,
-              paddingHorizontal: 16,
-              paddingVertical: 16,
-              borderRadius: 16
-            }}
-          >
-            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+          {/* Children with edit/delete */}
+          <View style={{ marginTop: 20, borderWidth: 1, borderColor: T.night4, backgroundColor: T.night3, paddingHorizontal: 16, paddingVertical: 16, borderRadius: 16 }}>
+            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
               <Text className="font-bodybold text-sm text-cream">Children</Text>
               <Text className="font-body text-xs text-moonDim">{workspace.children.length} profiles</Text>
             </View>
 
-            <View style={{ marginTop: 12, gap: 8 }}>
+            <View style={{ gap: 10 }}>
               {workspace.children.map((child, idx) => (
-                <View
+                <ChildCard
                   key={child.id}
-                  style={{
-                    borderWidth: 1,
-                    borderColor: T.night4,
-                    backgroundColor: "rgba(46,38,32,0.40)",
-                    padding: 12,
-                    borderRadius: 12,
-                    flexDirection: "row",
-                    alignItems: "center",
-                    gap: 12
+                  child={child}
+                  index={idx}
+                  canManage={canManageFamily}
+                  onUpdate={(childId, firstName, birthDate) => {
+                    updateChildMutation.mutate({ childId, firstName, birthDate });
                   }}
-                >
-                  <View
-                    style={{
-                      width: 36,
-                      height: 36,
-                      borderRadius: 18,
-                      backgroundColor: `${avatarColors[idx % avatarColors.length]}30`,
-                      alignItems: "center",
-                      justifyContent: "center"
-                    }}
-                  >
-                    <Text style={{ fontFamily: "DMSans_500Medium", fontSize: 14, color: avatarColors[idx % avatarColors.length] }}>
-                      {child.firstName.slice(0, 1).toUpperCase()}
-                    </Text>
-                  </View>
-                  <View>
-                    <Text className="font-body text-sm text-moon">{child.firstName}</Text>
-                    <Text className="mt-1 font-body text-moonDim" style={{ fontSize: 10 }}>
-                      {child.birthDate ? new Date(child.birthDate).toDateString() : "Birth date not set"}
-                    </Text>
-                  </View>
-                </View>
+                  onDelete={(childId) => {
+                    deleteChildMutation.mutate(childId);
+                  }}
+                />
               ))}
             </View>
 
@@ -356,15 +459,7 @@ export default function FamilyScreen() {
             <Pressable
               onPress={() => childMutation.mutate()}
               disabled={childMutation.isPending || !canManageFamily}
-              style={{
-                marginTop: 12,
-                borderWidth: 1,
-                borderColor: T.night4,
-                paddingHorizontal: 16,
-                paddingVertical: 14,
-                borderRadius: 14,
-                opacity: !canManageFamily ? 0.5 : 1
-              }}
+              style={{ marginTop: 12, borderWidth: 1, borderColor: T.night4, paddingHorizontal: 16, paddingVertical: 14, borderRadius: 14, opacity: !canManageFamily ? 0.5 : 1 }}
             >
               <Text style={{ textAlign: "center", fontFamily: "DMSans_400Regular", fontSize: 14, color: T.moon }}>
                 {childMutation.isPending ? "Adding..." : "Add child"}
@@ -373,25 +468,15 @@ export default function FamilyScreen() {
           </View>
 
           {/* Family members with nudge */}
-          <View
-            style={{
-              marginTop: 20,
-              borderWidth: 1,
-              borderColor: T.night4,
-              backgroundColor: T.night3,
-              paddingHorizontal: 16,
-              paddingVertical: 16,
-              borderRadius: 16
-            }}
-          >
-            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+          <View style={{ marginTop: 20, borderWidth: 1, borderColor: T.night4, backgroundColor: T.night3, paddingHorizontal: 16, paddingVertical: 16, borderRadius: 16 }}>
+            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
               <Text className="font-bodybold text-sm text-cream">Family members</Text>
               <View style={{ flexDirection: "row", gap: 12 }}>
                 <Text style={{ fontFamily: "DMSans_400Regular", fontSize: 10, color: T.moonDim }}>Editors {counts.editors}</Text>
                 <Text style={{ fontFamily: "DMSans_400Regular", fontSize: 10, color: T.moonDim }}>Viewers {counts.viewers}</Text>
               </View>
             </View>
-            <View style={{ marginTop: 12, gap: 8 }}>
+            <View style={{ gap: 8 }}>
               {(membersQuery.data ?? []).map((member, index) => {
                 const meta = roleMeta[member.role];
                 const color = avatarColors[index % avatarColors.length];
@@ -415,7 +500,6 @@ export default function FamilyScreen() {
                     }}
                   >
                     <View style={{ flexDirection: "row", alignItems: "center", gap: 12, flex: 1 }}>
-                      {/* Colored avatar circle */}
                       <View
                         style={{
                           width: 42,
@@ -444,7 +528,6 @@ export default function FamilyScreen() {
                     </View>
 
                     <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                      {/* Nudge button — only show for other members */}
                       {!isCurrentUser && canManageFamily ? (
                         <Pressable
                           onPress={() => void handleNudge(member.id)}
@@ -463,7 +546,6 @@ export default function FamilyScreen() {
                         </Pressable>
                       ) : null}
 
-                      {/* Role pill */}
                       <View
                         style={{
                           borderWidth: 1,
@@ -474,14 +556,7 @@ export default function FamilyScreen() {
                           backgroundColor: `${meta.color}18`
                         }}
                       >
-                        <Text
-                          style={{
-                            fontFamily: "DMSans_400Regular",
-                            fontSize: 10,
-                            textTransform: "uppercase",
-                            color: meta.color
-                          }}
-                        >
+                        <Text style={{ fontFamily: "DMSans_400Regular", fontSize: 10, textTransform: "uppercase", color: meta.color }}>
                           {meta.label}
                         </Text>
                       </View>
@@ -493,17 +568,7 @@ export default function FamilyScreen() {
           </View>
 
           {/* Permissions guide */}
-          <View
-            style={{
-              marginTop: 20,
-              borderWidth: 1,
-              borderColor: T.night4,
-              backgroundColor: T.night3,
-              paddingHorizontal: 16,
-              paddingVertical: 16,
-              borderRadius: 16
-            }}
-          >
+          <View style={{ marginTop: 20, borderWidth: 1, borderColor: T.night4, backgroundColor: T.night3, paddingHorizontal: 16, paddingVertical: 16, borderRadius: 16 }}>
             <Text className="font-bodybold text-sm text-cream">Permissions guide</Text>
             <View style={{ marginTop: 12, gap: 10 }}>
               {(["owner", "editor", "viewer"] as const).map((r) => {

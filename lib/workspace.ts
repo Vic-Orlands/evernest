@@ -389,3 +389,37 @@ export async function createChild(familyId: string, firstName: string, birthDate
     birthDate: data.birth_date
   };
 }
+
+export async function updateChild(
+  childId: string,
+  updates: { firstName?: string; birthDate?: string | null }
+): Promise<ChildProfile> {
+  const payload: Record<string, unknown> = {};
+  if (updates.firstName !== undefined) payload.first_name = updates.firstName.trim();
+  if (updates.birthDate !== undefined) payload.birth_date = updates.birthDate;
+
+  const { data, error } = await supabase
+    .from("children")
+    .update(payload)
+    .eq("id", childId)
+    .select("id, first_name, birth_date")
+    .single();
+
+  if (error || !data) {
+    throw toSupabaseSetupError(new Error(`Could not update child: ${error?.message ?? "Unknown"}`));
+  }
+
+  return {
+    id: data.id,
+    firstName: data.first_name,
+    birthDate: data.birth_date
+  };
+}
+
+export async function deleteChild(childId: string): Promise<void> {
+  const { error } = await supabase.from("children").delete().eq("id", childId);
+
+  if (error) {
+    throw toSupabaseSetupError(new Error(`Could not remove child: ${error.message}`));
+  }
+}

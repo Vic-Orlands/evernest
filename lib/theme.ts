@@ -17,6 +17,31 @@ export const T = {
   moonDim: "#8A8070"
 } as const;
 
+export const TLight = {
+  bg: "#FAF7F2",
+  bg2: "#F4F0E8",
+  bg3: "#EDE8DE",
+  bg4: "#E4DDD2",
+  surface: "#FFFFFF",
+  surface2: "#F7F3EC",
+  border: "rgba(0,0,0,0.07)",
+  border2: "rgba(0,0,0,0.12)",
+  text: "#1C1610",
+  text2: "#7A6A5A",
+  text3: "#B0A090",
+  brand: "#C4622A",
+  brand2: "#D07848",
+  brandBg: "rgba(196,98,42,0.09)",
+  brandGlow: "rgba(196,98,42,0.2)",
+  gold: "#A8882A",
+  goldBg: "rgba(168,136,42,0.09)",
+  sage: "#5A8E5A",
+  sageBg: "rgba(90,142,90,0.09)",
+  blush: "#C06858",
+  navy: "#2A5A8A",
+  navyBg: "rgba(42,90,138,0.09)"
+} as const;
+
 export const gradients = {
   forest: ["#3A2018", "#5A3020"],
   sage: ["#2A3A28", "#3A5035"],
