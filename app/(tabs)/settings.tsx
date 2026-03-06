@@ -1,24 +1,26 @@
 import { useEffect, useState } from "react";
-import { Alert, Pressable, ScrollView, Switch, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, Alert, Modal, Pressable, ScrollView, Switch, Text, TextInput, View } from "react-native";
 import * as Linking from "expo-linking";
+import * as ImagePicker from "expo-image-picker";
 import { router } from "expo-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { MotiView } from "moti";
+import { ProfileAvatar } from "@/components/profile-avatar";
 import { useReminders } from "@/hooks/use-reminders";
 import { useWorkspace } from "@/hooks/use-workspace";
 import { useAuth } from "@/hooks/use-auth";
+import { useProfile } from "@/hooks/use-profile";
+import { useAppTheme } from "@/hooks/use-app-theme";
 import { requestDeleteAccount, updateAccountPassword, updateAccountProfile } from "@/lib/account";
 import { createSubscriptionCheckoutLink } from "@/lib/billing";
+import { saveProfileAppearance } from "@/lib/profile";
 import { getReminderRule, listExportJobs, queueExportJob, saveReminderRule } from "@/lib/repositories";
 import { queryKeys } from "@/lib/query-keys";
 import { signOut } from "@/lib/auth";
-import { T } from "@/lib/theme";
 
-/* ------------------------------------------------------------------ */
-/* Reusable pieces                                                     */
-/* ------------------------------------------------------------------ */
+const BUTTON_PADDING_Y = 11;
 
 function SectionCard({
   icon,
@@ -26,6 +28,10 @@ function SectionCard({
   title,
   description,
   index,
+  backgroundColor,
+  borderColor,
+  textColor,
+  descriptionColor,
   children
 }: {
   icon: keyof typeof MaterialCommunityIcons.glyphMap;
@@ -33,6 +39,10 @@ function SectionCard({
   title: string;
   description: string;
   index: number;
+  backgroundColor: string;
+  borderColor: string;
+  textColor: string;
+  descriptionColor: string;
   children: React.ReactNode;
 }) {
   return (
@@ -42,11 +52,10 @@ function SectionCard({
       transition={{ type: "timing", duration: 320, delay: index * 50 }}
       style={{
         marginTop: 16,
-        borderRadius: 20,
-        backgroundColor: T.night3,
+        backgroundColor,
         padding: 18,
         borderWidth: 1,
-        borderColor: T.night4
+        borderColor
       }}
     >
       <View style={{ flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 12 }}>
@@ -54,7 +63,6 @@ function SectionCard({
           style={{
             width: 38,
             height: 38,
-            borderRadius: 12,
             backgroundColor: `${iconColor}18`,
             alignItems: "center",
             justifyContent: "center"
@@ -63,8 +71,8 @@ function SectionCard({
           <MaterialCommunityIcons name={icon} size={20} color={iconColor} />
         </View>
         <View style={{ flex: 1 }}>
-          <Text style={{ fontFamily: "DMSans_500Medium", fontSize: 14, color: T.cream }}>{title}</Text>
-          <Text style={{ fontFamily: "DMSans_400Regular", fontSize: 11, color: T.moonDim, marginTop: 2 }}>
+          <Text style={{ fontFamily: "DMSans_500Medium", fontSize: 14, color: textColor }}>{title}</Text>
+          <Text style={{ fontFamily: "DMSans_400Regular", fontSize: 11, color: descriptionColor, marginTop: 2 }}>
             {description}
           </Text>
         </View>
@@ -78,6 +86,10 @@ function SettingsInput({
   value,
   onChangeText,
   placeholder,
+  placeholderTextColor,
+  textColor,
+  backgroundColor,
+  borderColor,
   secureTextEntry,
   autoCapitalize,
   keyboardType,
@@ -87,6 +99,10 @@ function SettingsInput({
   value: string;
   onChangeText: (text: string) => void;
   placeholder: string;
+  placeholderTextColor: string;
+  textColor: string;
+  backgroundColor: string;
+  borderColor: string;
   secureTextEntry?: boolean;
   autoCapitalize?: "none" | "sentences" | "words" | "characters";
   keyboardType?: "default" | "email-address" | "number-pad";
@@ -99,22 +115,21 @@ function SettingsInput({
         value={value}
         onChangeText={onChangeText}
         placeholder={placeholder}
-        placeholderTextColor={T.moonDim}
+        placeholderTextColor={placeholderTextColor}
         secureTextEntry={secureTextEntry}
         autoCapitalize={autoCapitalize}
         keyboardType={keyboardType}
         editable={editable}
         style={{
-          borderRadius: 14,
           borderWidth: 1,
-          borderColor: editable ? T.night4 : "rgba(46,38,32,0.20)",
+          borderColor,
           paddingHorizontal: 16,
-          paddingVertical: 12,
+          paddingVertical: 11,
           paddingRight: rightIcon ? 48 : 16,
           fontFamily: "DMSans_400Regular",
           fontSize: 14,
-          color: editable ? T.moon : T.moonDim,
-          backgroundColor: editable ? "rgba(46,38,32,0.25)" : "rgba(46,38,32,0.12)"
+          color: textColor,
+          backgroundColor
         }}
       />
       {rightIcon ? (
@@ -131,45 +146,43 @@ function PrimaryButton({
   loading,
   onPress,
   disabled,
-  variant = "primary"
+  variant = "primary",
+  backgroundColor,
+  borderColor,
+  textColor
 }: {
   label: string;
   loading?: boolean;
   onPress: () => void;
   disabled?: boolean;
   variant?: "primary" | "secondary" | "danger";
+  backgroundColor: string;
+  borderColor: string;
+  textColor: string;
 }) {
-  const bg =
-    variant === "primary"
-      ? T.terracotta
-      : variant === "danger"
-        ? "#B94035"
-        : "transparent";
-
   return (
     <Pressable
       onPress={onPress}
       disabled={disabled || loading}
       style={{
         marginTop: 12,
-        backgroundColor: bg,
+        backgroundColor,
         paddingHorizontal: 16,
-        paddingVertical: 14,
-        borderRadius: 14,
+        paddingVertical: BUTTON_PADDING_Y,
         borderWidth: variant === "secondary" ? 1 : 0,
-        borderColor: T.night4,
+        borderColor,
         opacity: disabled ? 0.5 : 1
       }}
     >
       <Text
         style={{
           textAlign: "center",
-          fontFamily: variant === "primary" || variant === "danger" ? "DMSans_500Medium" : "DMSans_400Regular",
+          fontFamily: variant === "secondary" ? "DMSans_400Regular" : "DMSans_500Medium",
           fontSize: 14,
-          color: variant === "secondary" ? T.moon : T.cream
+          color: textColor
         }}
       >
-        {loading ? "Working…" : label}
+        {loading ? "Working..." : label}
       </Text>
     </Pressable>
   );
@@ -180,66 +193,67 @@ function ToggleRow({
   description,
   value,
   onValueChange,
-  disabled
+  disabled,
+  textColor,
+  descriptionColor,
+  trackFalse,
+  trackTrue,
+  thumbColor
 }: {
   label: string;
   description?: string;
   value: boolean;
   onValueChange: (val: boolean) => void;
   disabled?: boolean;
+  textColor: string;
+  descriptionColor: string;
+  trackFalse: string;
+  trackTrue: string;
+  thumbColor: string;
 }) {
   return (
     <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: 10, gap: 12 }}>
       <View style={{ flex: 1 }}>
-        <Text style={{ fontFamily: "DMSans_400Regular", fontSize: 13, color: T.cream }}>{label}</Text>
+        <Text style={{ fontFamily: "DMSans_400Regular", fontSize: 13, color: textColor }}>{label}</Text>
         {description ? (
-          <Text style={{ fontFamily: "DMSans_400Regular", fontSize: 11, color: T.moonDim, marginTop: 2 }}>{description}</Text>
+          <Text style={{ fontFamily: "DMSans_400Regular", fontSize: 11, color: descriptionColor, marginTop: 2 }}>
+            {description}
+          </Text>
         ) : null}
       </View>
       <Switch
         value={value}
         onValueChange={onValueChange}
         disabled={disabled}
-        trackColor={{ false: T.night4, true: "rgba(196,98,58,0.50)" }}
-        thumbColor={value ? T.terracotta : T.moon}
+        trackColor={{ false: trackFalse, true: trackTrue }}
+        thumbColor={thumbColor}
       />
     </View>
   );
 }
 
-/* ------------------------------------------------------------------ */
-/* Main Screen                                                         */
-/* ------------------------------------------------------------------ */
-
 export default function SettingsScreen() {
   const queryClient = useQueryClient();
+  const { colors, themeName, setThemeName } = useAppTheme();
   const { enabled, supported, scheduleDailyReminder, scheduleCatchUpReminder } = useReminders();
   const { user, refresh } = useAuth();
+  const { profile, refetch: refetchProfile } = useProfile();
   const { workspace, workspaceLoading, workspaceError, refetchWorkspace } = useWorkspace();
 
-  // Profile edit mode
   const [editingProfile, setEditingProfile] = useState(false);
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
-
-  // Security
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
-
-  // Notifications
   const [hour, setHour] = useState("20");
   const [minute, setMinute] = useState("30");
   const [dailyRemindersOn, setDailyRemindersOn] = useState(true);
   const [familyActivityOn, setFamilyActivityOn] = useState(true);
   const [nudgesOn, setNudgesOn] = useState(true);
-
-  // Appearance
-  const [darkModeOn, setDarkModeOn] = useState(true);
-
-  // Delete account
   const [deleteConfirmation, setDeleteConfirmation] = useState("");
+  const [showSignOutModal, setShowSignOutModal] = useState(false);
 
   const reminderQuery = useQuery({
     queryKey: workspace ? queryKeys.reminderRule(workspace.family.id) : ["reminder-rule", "guest"],
@@ -265,18 +279,75 @@ export default function SettingsScreen() {
     setMinute(String(reminderQuery.data.minute));
   }, [reminderQuery.data]);
 
-  /* ---- Mutations ---- */
+  const syncProfileQueries = async () => {
+    if (user) {
+      await queryClient.invalidateQueries({ queryKey: queryKeys.profile(user.id) });
+    }
+    await queryClient.invalidateQueries({ queryKey: ["family-members"] });
+    await refetchProfile();
+    await refetchWorkspace();
+  };
 
   const profileMutation = useMutation({
     mutationFn: async () => updateAccountProfile({ fullName, email }),
     onSuccess: async (message) => {
       await refresh();
-      await refetchWorkspace();
+      await syncProfileQueries();
       setEditingProfile(false);
       Alert.alert("Profile updated", message);
     },
     onError: (error) => {
       Alert.alert("Could not update profile", error instanceof Error ? error.message : "Unknown error");
+    }
+  });
+
+  const profilePhotoMutation = useMutation({
+    mutationFn: async () => {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+        throw new Error("Allow photo library access to update your profile image.");
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ["images"],
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.92
+      });
+
+      if (result.canceled || !result.assets[0]) {
+        return;
+      }
+
+      await saveProfileAppearance({
+        avatarConfig: profile?.avatarConfig ?? undefined,
+        imageUri: result.assets[0].uri,
+        imageMimeType: result.assets[0].mimeType
+      });
+    },
+    onSuccess: async () => {
+      await syncProfileQueries();
+    },
+    onError: (error) => {
+      if (error instanceof Error && error.message === "Allow photo library access to update your profile image.") {
+        Alert.alert("Permission needed", error.message);
+        return;
+      }
+      Alert.alert("Could not update profile image", error instanceof Error ? error.message : "Unknown error");
+    }
+  });
+
+  const removePhotoMutation = useMutation({
+    mutationFn: async () =>
+      saveProfileAppearance({
+        avatarConfig: profile?.avatarConfig ?? undefined,
+        removeImage: true
+      }),
+    onSuccess: async () => {
+      await syncProfileQueries();
+    },
+    onError: (error) => {
+      Alert.alert("Could not switch to avatar", error instanceof Error ? error.message : "Unknown error");
     }
   });
 
@@ -303,7 +374,13 @@ export default function SettingsScreen() {
       const parsedHour = Number.parseInt(hour, 10);
       const parsedMinute = Number.parseInt(minute, 10);
       if (Number.isNaN(parsedHour) || Number.isNaN(parsedMinute)) throw new Error("Hour and minute must be numbers");
-      await saveReminderRule({ familyId: workspace.family.id, hour: parsedHour, minute: parsedMinute, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone, enabled: true });
+      await saveReminderRule({
+        familyId: workspace.family.id,
+        hour: parsedHour,
+        minute: parsedMinute,
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        enabled: true
+      });
       await scheduleDailyReminder(parsedHour, parsedMinute);
       await scheduleCatchUpReminder();
     },
@@ -319,8 +396,12 @@ export default function SettingsScreen() {
 
   const billingMutation = useMutation({
     mutationFn: async () => createSubscriptionCheckoutLink("pro_monthly"),
-    onSuccess: async (checkoutUrl) => { await Linking.openURL(checkoutUrl); },
-    onError: (error) => { Alert.alert("Billing unavailable", error instanceof Error ? error.message : "Unknown error"); }
+    onSuccess: async (checkoutUrl) => {
+      await Linking.openURL(checkoutUrl);
+    },
+    onError: (error) => {
+      Alert.alert("Billing unavailable", error instanceof Error ? error.message : "Unknown error");
+    }
   });
 
   const exportMutation = useMutation({
@@ -330,9 +411,13 @@ export default function SettingsScreen() {
     },
     onSuccess: () => {
       Alert.alert("Export queued", "Your export request has been queued and will process shortly.");
-      if (workspace) void queryClient.invalidateQueries({ queryKey: queryKeys.exports(workspace.family.id) });
+      if (workspace) {
+        void queryClient.invalidateQueries({ queryKey: queryKeys.exports(workspace.family.id) });
+      }
     },
-    onError: (error) => { Alert.alert("Export failed", error instanceof Error ? error.message : "Unknown error"); }
+    onError: (error) => {
+      Alert.alert("Export failed", error instanceof Error ? error.message : "Unknown error");
+    }
   });
 
   const deleteAccountMutation = useMutation({
@@ -344,7 +429,9 @@ export default function SettingsScreen() {
       await signOut().catch(() => undefined);
       router.replace("/(auth)");
     },
-    onError: (error) => { Alert.alert("Could not delete account", error instanceof Error ? error.message : "Unknown error"); }
+    onError: (error) => {
+      Alert.alert("Could not delete account", error instanceof Error ? error.message : "Unknown error");
+    }
   });
 
   const logout = async () => {
@@ -356,13 +443,15 @@ export default function SettingsScreen() {
     }
   };
 
-  /* ---- Early returns ---- */
+  const secondaryBackground = colors.surfaceSecondary;
+  const primaryText = colors.text;
+  const mutedText = colors.textMuted;
 
   if (workspaceLoading) {
     return (
-      <SafeAreaView edges={["top"]} className="flex-1 bg-night2">
-        <View className="flex-1 items-center justify-center">
-          <Text className="font-body text-moonDim">Loading workspace...</Text>
+      <SafeAreaView edges={["top"]} style={{ flex: 1, backgroundColor: colors.backgroundSecondary }}>
+        <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
+          <ActivityIndicator color={colors.brand} />
         </View>
       </SafeAreaView>
     );
@@ -370,219 +459,595 @@ export default function SettingsScreen() {
 
   if (!workspace) {
     return (
-      <SafeAreaView edges={["top"]} className="flex-1 bg-night2">
-        <ScrollView contentInsetAdjustmentBehavior="automatic" className="flex-1 bg-night2">
-          <View className="px-5 pt-5">
-            <Text className="font-display text-3xl text-cream">Workspace unavailable</Text>
-            <Text className="mt-2 font-body text-sm text-moonDim">
+      <SafeAreaView edges={["top"]} style={{ flex: 1, backgroundColor: colors.backgroundSecondary }}>
+        <ScrollView contentInsetAdjustmentBehavior="automatic" style={{ flex: 1 }}>
+          <View style={{ paddingHorizontal: 20, paddingTop: 20 }}>
+            <Text style={{ fontFamily: "InstrumentSerif_400Regular", fontSize: 30, color: primaryText }}>
+              Workspace unavailable
+            </Text>
+            <Text style={{ fontFamily: "DMSans_400Regular", fontSize: 13, color: mutedText, marginTop: 8 }}>
               {workspaceError instanceof Error ? workspaceError.message : "Could not load your family workspace."}
             </Text>
-            <Pressable onPress={() => { void refetchWorkspace(); }} style={{ marginTop: 16, borderWidth: 1, borderColor: T.night4, paddingHorizontal: 16, paddingVertical: 12, borderRadius: 14 }}>
-              <Text className="text-center font-body text-sm text-moon">Retry workspace sync</Text>
-            </Pressable>
+            <PrimaryButton
+              label="Retry workspace sync"
+              onPress={() => {
+                void refetchWorkspace();
+              }}
+              backgroundColor={colors.surface}
+              borderColor={colors.border}
+              textColor={primaryText}
+              variant="secondary"
+            />
           </View>
         </ScrollView>
       </SafeAreaView>
     );
   }
 
-  /* ---- Main render ---- */
-
-  const initials = (user?.name ?? "G").slice(0, 2).toUpperCase();
-
   return (
-    <SafeAreaView edges={["top"]} className="flex-1 bg-night2">
-      <ScrollView contentInsetAdjustmentBehavior="automatic" className="flex-1 bg-night2" contentContainerStyle={{ paddingBottom: 120 }}>
-        <View className="px-5 pt-4">
-          {/* Header */}
-          <MotiView from={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 300 }}>
-            <Text className="font-display text-4xl text-cream">Settings</Text>
-            <Text className="mt-1 font-body text-xs text-moonDim">Manage your account, notifications, and preferences.</Text>
-          </MotiView>
+    <SafeAreaView edges={["top"]} style={{ flex: 1, backgroundColor: colors.backgroundSecondary }}>
+      <ScrollView contentInsetAdjustmentBehavior="automatic" contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 16, paddingBottom: 120 }}>
+        <Text style={{ fontFamily: "InstrumentSerif_400Regular", fontSize: 38, color: primaryText }}>Settings</Text>
+        <Text style={{ fontFamily: "DMSans_400Regular", fontSize: 12, color: mutedText, marginTop: 4 }}>
+          Manage your account, notifications, and appearance.
+        </Text>
 
-          {/* ============ PROFILE CARD (first) ============ */}
-          <MotiView
-            from={{ opacity: 0, translateY: 10 }}
-            animate={{ opacity: 1, translateY: 0 }}
-            transition={{ type: "timing", duration: 320, delay: 30 }}
-            style={{ marginTop: 20, borderRadius: 20, backgroundColor: T.night3, padding: 18, borderWidth: 1, borderColor: T.night4 }}
-          >
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 14 }}>
-              {/* Avatar */}
-              <View
-                style={{
-                  width: 56,
-                  height: 56,
-                  borderRadius: 20,
-                  backgroundColor: "rgba(196,98,58,0.15)",
-                  borderWidth: 2,
-                  borderColor: "rgba(196,98,58,0.30)",
-                  alignItems: "center",
-                  justifyContent: "center"
-                }}
-              >
-                <Text style={{ fontFamily: "DMSans_500Medium", fontSize: 20, color: T.terracotta }}>{initials}</Text>
-              </View>
-
-              <View style={{ flex: 1 }}>
-                <Text style={{ fontFamily: "DMSans_500Medium", fontSize: 16, color: T.cream }}>{user?.name ?? "Guardian"}</Text>
-                <Text style={{ fontFamily: "DMSans_400Regular", fontSize: 12, color: T.moonDim, marginTop: 2 }}>{user?.email ?? ""}</Text>
-                <Text style={{ fontFamily: "DMSans_400Regular", fontSize: 10, color: T.moonDim, marginTop: 2 }}>
-                  {workspace.role.charAt(0).toUpperCase() + workspace.role.slice(1)} · {workspace.family.name}
-                </Text>
-              </View>
-
-              <Pressable
-                onPress={() => setEditingProfile(!editingProfile)}
-                style={{
-                  width: 36,
-                  height: 36,
-                  borderRadius: 12,
-                  backgroundColor: editingProfile ? "rgba(196,98,58,0.20)" : "rgba(46,38,32,0.50)",
-                  borderWidth: 1,
-                  borderColor: editingProfile ? "rgba(196,98,58,0.40)" : T.night4,
-                  alignItems: "center",
-                  justifyContent: "center"
-                }}
-              >
-                <MaterialCommunityIcons
-                  name={editingProfile ? "close" : "pencil-outline"}
-                  size={16}
-                  color={editingProfile ? T.terracotta : T.moonDim}
-                />
-              </Pressable>
-            </View>
-
-            {/* Expandable edit form */}
-            {editingProfile ? (
-              <MotiView
-                from={{ opacity: 0, translateY: -8 }}
-                animate={{ opacity: 1, translateY: 0 }}
-                transition={{ type: "timing", duration: 250 }}
-                style={{ marginTop: 16 }}
-              >
-                <SettingsInput value={fullName} onChangeText={setFullName} placeholder="Full name" />
-                <SettingsInput value={email} onChangeText={setEmail} autoCapitalize="none" keyboardType="email-address" placeholder="Email address" />
-                <PrimaryButton label="Save profile" loading={profileMutation.isPending} onPress={() => profileMutation.mutate()} />
-              </MotiView>
-            ) : null}
-          </MotiView>
-
-          {/* ============ SECURITY ============ */}
-          <SectionCard icon="shield-lock-outline" iconColor="#8B9CF7" title="Security" description="Change your password." index={1}>
-            <SettingsInput
-              value={password}
-              onChangeText={setPassword}
-              secureTextEntry={!showPassword}
-              placeholder="New password"
-              rightIcon={
-                <Pressable onPress={() => setShowPassword(!showPassword)}>
-                  <MaterialCommunityIcons name={showPassword ? "eye-off-outline" : "eye-outline"} size={20} color={T.moonDim} />
-                </Pressable>
-              }
+        <MotiView
+          from={{ opacity: 0, translateY: 10 }}
+          animate={{ opacity: 1, translateY: 0 }}
+          transition={{ type: "timing", duration: 320, delay: 20 }}
+          style={{
+            marginTop: 20,
+            backgroundColor: colors.surface,
+            borderWidth: 1,
+            borderColor: colors.border,
+            padding: 18
+          }}
+        >
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 14 }}>
+            <ProfileAvatar
+              imageUrl={profile?.avatarUrl}
+              avatarConfig={profile?.avatarConfig}
+              name={profile?.fullName ?? user?.name}
+              size={64}
             />
-            <SettingsInput
-              value={confirmPassword}
-              onChangeText={setConfirmPassword}
-              secureTextEntry={!showConfirmPassword}
-              placeholder="Confirm new password"
-              rightIcon={
-                <Pressable onPress={() => setShowConfirmPassword(!showConfirmPassword)}>
-                  <MaterialCommunityIcons name={showConfirmPassword ? "eye-off-outline" : "eye-outline"} size={20} color={T.moonDim} />
-                </Pressable>
-              }
-            />
-            <PrimaryButton label="Change password" loading={passwordMutation.isPending} onPress={() => passwordMutation.mutate()} variant="secondary" />
-          </SectionCard>
-
-          {/* ============ APPEARANCE ============ */}
-          <SectionCard icon="palette-outline" iconColor={T.sageLight} title="Appearance" description="Customize how EverNest looks." index={2}>
-            <ToggleRow label="Dark mode" description="Use the dark theme throughout the app." value={darkModeOn} onValueChange={setDarkModeOn} />
-          </SectionCard>
-
-          {/* ============ NOTIFICATIONS ============ */}
-          <SectionCard
-            icon="bell-outline"
-            iconColor={T.gold}
-            title="Notifications"
-            description={supported ? `Permission: ${enabled ? "Granted" : "Not granted"}` : "Requires a development build."}
-            index={3}
-          >
-            <ToggleRow label="Daily reminders" description="Get reminded to capture a memory each day." value={dailyRemindersOn} onValueChange={setDailyRemindersOn} disabled={!supported} />
-            <ToggleRow label="Family activity" description="Notify when someone captures or comments." value={familyActivityOn} onValueChange={setFamilyActivityOn} disabled={!supported} />
-            <ToggleRow label="Nudges" description="Allow family members to nudge you." value={nudgesOn} onValueChange={setNudgesOn} disabled={!supported} />
-
-            <View style={{ marginTop: 12, flexDirection: "row", gap: 8 }}>
-              <TextInput keyboardType="number-pad" value={hour} onChangeText={setHour} placeholder="Hour" placeholderTextColor={T.moonDim} style={{ flex: 1, borderRadius: 14, borderWidth: 1, borderColor: T.night4, paddingHorizontal: 12, paddingVertical: 10, fontFamily: "DMSans_400Regular", fontSize: 14, color: T.moon, backgroundColor: "rgba(46,38,32,0.25)" }} />
-              <TextInput keyboardType="number-pad" value={minute} onChangeText={setMinute} placeholder="Min" placeholderTextColor={T.moonDim} style={{ flex: 1, borderRadius: 14, borderWidth: 1, borderColor: T.night4, paddingHorizontal: 12, paddingVertical: 10, fontFamily: "DMSans_400Regular", fontSize: 14, color: T.moon, backgroundColor: "rgba(46,38,32,0.25)" }} />
+            <View style={{ flex: 1 }}>
+              <Text style={{ fontFamily: "DMSans_500Medium", fontSize: 16, color: primaryText }}>
+                {profile?.fullName ?? user?.name ?? "Guardian"}
+              </Text>
+              <Text style={{ fontFamily: "DMSans_400Regular", fontSize: 12, color: mutedText, marginTop: 2 }}>
+                {profile?.email ?? user?.email ?? ""}
+              </Text>
+              <Text style={{ fontFamily: "DMSans_400Regular", fontSize: 10, color: mutedText, marginTop: 2 }}>
+                {workspace.role.charAt(0).toUpperCase() + workspace.role.slice(1)} · {workspace.family.name}
+              </Text>
             </View>
-            <PrimaryButton label="Save reminder" loading={reminderMutation.isPending} onPress={() => reminderMutation.mutate()} disabled={!supported} />
-          </SectionCard>
-
-          {/* ============ BILLING ============ */}
-          <SectionCard icon="credit-card-outline" iconColor="#E8A090" title="Billing" description="Manage your EverNest subscription." index={4}>
-            <PrimaryButton label="Open checkout" loading={billingMutation.isPending} onPress={() => billingMutation.mutate()} variant="secondary" />
-          </SectionCard>
-
-          {/* ============ EXPORTS ============ */}
-          <SectionCard icon="download-outline" iconColor={T.sageLight} title="Exports" description="Send an export package to your cloud storage." index={5}>
-            <View style={{ gap: 8 }}>
-              <PrimaryButton label="Google Drive export" onPress={() => exportMutation.mutate("google_drive")} variant="secondary" />
-              <PrimaryButton label="iCloud export" onPress={() => exportMutation.mutate("icloud")} variant="secondary" />
-              <PrimaryButton label="Direct download" onPress={() => exportMutation.mutate("download")} variant="secondary" />
-            </View>
-            {(exportsQuery.data ?? []).length > 0 ? (
-              <View style={{ marginTop: 12, gap: 8 }}>
-                {(exportsQuery.data ?? []).slice(0, 4).map((job) => {
-                  const resultUrl = job.resultUrl;
-                  return (
-                    <View key={job.id} style={{ borderRadius: 12, borderWidth: 1, borderColor: T.night4, backgroundColor: "rgba(46,38,32,0.40)", padding: 12 }}>
-                      <Text style={{ fontFamily: "DMSans_400Regular", fontSize: 12, color: T.moon }}>{job.target} · {job.status}</Text>
-                      <Text style={{ fontFamily: "DMSans_400Regular", fontSize: 10, color: T.moonDim, marginTop: 4 }}>{new Date(job.createdAt).toLocaleString()}</Text>
-                      {resultUrl ? (
-                        <Pressable onPress={() => void Linking.openURL(resultUrl)} style={{ marginTop: 8, alignSelf: "flex-start", borderRadius: 10, borderWidth: 1, borderColor: T.night4, paddingHorizontal: 12, paddingVertical: 8 }}>
-                          <Text style={{ fontFamily: "DMSans_400Regular", fontSize: 10, color: T.moon }}>Open link</Text>
-                        </Pressable>
-                      ) : null}
-                    </View>
-                  );
-                })}
-              </View>
-            ) : null}
-          </SectionCard>
-
-          {/* ============ SESSION ============ */}
-          <SectionCard icon="logout" iconColor={T.moonDim} title="Session" description="Sign out of this device." index={6}>
-            <PrimaryButton label="Sign out" onPress={logout} variant="secondary" />
-          </SectionCard>
-
-          {/* ============ DANGER ZONE ============ */}
-          <MotiView
-            from={{ opacity: 0, translateY: 10 }}
-            animate={{ opacity: 1, translateY: 0 }}
-            transition={{ type: "timing", duration: 320, delay: 350 }}
-            style={{ marginTop: 16, borderRadius: 20, backgroundColor: "#271514", padding: 18, borderWidth: 1, borderColor: "#7A2E2A" }}
-          >
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 12 }}>
-              <View style={{ width: 38, height: 38, borderRadius: 12, backgroundColor: "rgba(185,64,53,0.18)", alignItems: "center", justifyContent: "center" }}>
-                <MaterialCommunityIcons name="alert-circle-outline" size={20} color="#E85A4F" />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={{ fontFamily: "DMSans_500Medium", fontSize: 14, color: T.cream }}>Danger zone</Text>
-                <Text style={{ fontFamily: "DMSans_400Regular", fontSize: 11, color: T.moonDim, marginTop: 2 }}>Delete your account and all data. This cannot be undone.</Text>
-              </View>
-            </View>
-            <SettingsInput value={deleteConfirmation} onChangeText={setDeleteConfirmation} autoCapitalize="characters" placeholder="Type DELETE to confirm" />
-            <PrimaryButton label="Delete account" loading={deleteAccountMutation.isPending} onPress={() => deleteAccountMutation.mutate()} variant="danger" />
-          </MotiView>
-
-          {/* App footer */}
-          <View style={{ marginTop: 32, alignItems: "center", paddingBottom: 20 }}>
-            <Text style={{ fontFamily: "DMSans_500Medium", fontSize: 13, color: T.moonDim }}>EverNest v0.1.0</Text>
-            <Text style={{ fontFamily: "DMSans_400Regular", fontSize: 11, color: T.moonDim, marginTop: 4 }}>Built for families. Made with ❤️</Text>
+            <Pressable
+              onPress={() => setEditingProfile((value) => !value)}
+              style={{
+                width: 38,
+                height: 38,
+                alignItems: "center",
+                justifyContent: "center",
+                borderWidth: 1,
+                borderColor: editingProfile ? colors.brand : colors.border,
+                backgroundColor: editingProfile ? colors.brandBackground : secondaryBackground
+              }}
+            >
+              <MaterialCommunityIcons
+                name={editingProfile ? "close" : "pencil-outline"}
+                size={18}
+                color={editingProfile ? colors.brand : mutedText}
+              />
+            </Pressable>
           </View>
+
+          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10, marginTop: 16 }}>
+            <PrimaryButton
+              label={profilePhotoMutation.isPending ? "Updating..." : "Choose photo"}
+              loading={false}
+              onPress={() => profilePhotoMutation.mutate()}
+              backgroundColor={colors.surfaceSecondary}
+              borderColor={colors.border}
+              textColor={primaryText}
+              variant="secondary"
+            />
+            <PrimaryButton
+              label="Build avatar"
+              onPress={() => router.push("/avatar")}
+              backgroundColor={colors.brand}
+              borderColor={colors.brand}
+              textColor="#FFFFFF"
+            />
+            {profile?.avatarUrl ? (
+              <PrimaryButton
+                label={removePhotoMutation.isPending ? "Removing..." : "Use avatar"}
+                onPress={() => removePhotoMutation.mutate()}
+                backgroundColor={colors.surfaceSecondary}
+                borderColor={colors.border}
+                textColor={primaryText}
+                variant="secondary"
+              />
+            ) : null}
+          </View>
+
+          {editingProfile ? (
+            <MotiView
+              from={{ opacity: 0, translateY: -8 }}
+              animate={{ opacity: 1, translateY: 0 }}
+              transition={{ type: "timing", duration: 250 }}
+              style={{ marginTop: 12 }}
+            >
+              <SettingsInput
+                value={fullName}
+                onChangeText={setFullName}
+                placeholder="Full name"
+                placeholderTextColor={mutedText}
+                textColor={primaryText}
+                backgroundColor={secondaryBackground}
+                borderColor={colors.border}
+              />
+              <SettingsInput
+                value={email}
+                onChangeText={setEmail}
+                placeholder="Email address"
+                placeholderTextColor={mutedText}
+                textColor={primaryText}
+                backgroundColor={secondaryBackground}
+                borderColor={colors.border}
+                autoCapitalize="none"
+                keyboardType="email-address"
+              />
+              <PrimaryButton
+                label="Save profile"
+                loading={profileMutation.isPending}
+                onPress={() => profileMutation.mutate()}
+                backgroundColor={colors.brand}
+                borderColor={colors.brand}
+                textColor="#FFFFFF"
+              />
+            </MotiView>
+          ) : null}
+        </MotiView>
+
+        <SectionCard
+          icon="shield-lock-outline"
+          iconColor={colors.navy}
+          title="Security"
+          description="Change your password."
+          index={1}
+          backgroundColor={colors.surface}
+          borderColor={colors.border}
+          textColor={primaryText}
+          descriptionColor={mutedText}
+        >
+          <SettingsInput
+            value={password}
+            onChangeText={setPassword}
+            placeholder="New password"
+            placeholderTextColor={mutedText}
+            textColor={primaryText}
+            backgroundColor={secondaryBackground}
+            borderColor={colors.border}
+            secureTextEntry={!showPassword}
+            rightIcon={
+              <Pressable onPress={() => setShowPassword((value) => !value)}>
+                <MaterialCommunityIcons name={showPassword ? "eye-off-outline" : "eye-outline"} size={20} color={mutedText} />
+              </Pressable>
+            }
+          />
+          <SettingsInput
+            value={confirmPassword}
+            onChangeText={setConfirmPassword}
+            placeholder="Confirm new password"
+            placeholderTextColor={mutedText}
+            textColor={primaryText}
+            backgroundColor={secondaryBackground}
+            borderColor={colors.border}
+            secureTextEntry={!showConfirmPassword}
+            rightIcon={
+              <Pressable onPress={() => setShowConfirmPassword((value) => !value)}>
+                <MaterialCommunityIcons name={showConfirmPassword ? "eye-off-outline" : "eye-outline"} size={20} color={mutedText} />
+              </Pressable>
+            }
+          />
+          <PrimaryButton
+            label="Change password"
+            loading={passwordMutation.isPending}
+            onPress={() => passwordMutation.mutate()}
+            backgroundColor={colors.surfaceSecondary}
+            borderColor={colors.border}
+            textColor={primaryText}
+            variant="secondary"
+          />
+        </SectionCard>
+
+        <SectionCard
+          icon="palette-outline"
+          iconColor={colors.sage}
+          title="Appearance"
+          description="Switch between the dark and light themes."
+          index={2}
+          backgroundColor={colors.surface}
+          borderColor={colors.border}
+          textColor={primaryText}
+          descriptionColor={mutedText}
+        >
+          <ToggleRow
+            label="Light mode"
+            description="Use the soft paper theme throughout the app."
+            value={themeName === "light"}
+            onValueChange={(value) => {
+              void setThemeName(value ? "light" : "dark");
+            }}
+            textColor={primaryText}
+            descriptionColor={mutedText}
+            trackFalse={colors.border}
+            trackTrue={colors.brandBackground}
+            thumbColor={themeName === "light" ? colors.brand : primaryText}
+          />
+        </SectionCard>
+
+        <SectionCard
+          icon="bell-outline"
+          iconColor={colors.gold}
+          title="Notifications"
+          description={supported ? `Permission: ${enabled ? "Granted" : "Not granted"}` : "Requires a development build."}
+          index={3}
+          backgroundColor={colors.surface}
+          borderColor={colors.border}
+          textColor={primaryText}
+          descriptionColor={mutedText}
+        >
+          <ToggleRow
+            label="Daily reminders"
+            description="Get reminded to capture a memory each day."
+            value={dailyRemindersOn}
+            onValueChange={setDailyRemindersOn}
+            disabled={!supported}
+            textColor={primaryText}
+            descriptionColor={mutedText}
+            trackFalse={colors.border}
+            trackTrue={colors.goldBackground}
+            thumbColor={colors.gold}
+          />
+          <ToggleRow
+            label="Family activity"
+            description="Notify when someone captures or comments."
+            value={familyActivityOn}
+            onValueChange={setFamilyActivityOn}
+            disabled={!supported}
+            textColor={primaryText}
+            descriptionColor={mutedText}
+            trackFalse={colors.border}
+            trackTrue={colors.goldBackground}
+            thumbColor={colors.gold}
+          />
+          <ToggleRow
+            label="Nudges"
+            description="Allow family members to nudge you."
+            value={nudgesOn}
+            onValueChange={setNudgesOn}
+            disabled={!supported}
+            textColor={primaryText}
+            descriptionColor={mutedText}
+            trackFalse={colors.border}
+            trackTrue={colors.goldBackground}
+            thumbColor={colors.gold}
+          />
+
+          <View style={{ marginTop: 12, flexDirection: "row", gap: 8 }}>
+            <TextInput
+              keyboardType="number-pad"
+              value={hour}
+              onChangeText={setHour}
+              placeholder="Hour"
+              placeholderTextColor={mutedText}
+              style={{
+                flex: 1,
+                borderWidth: 1,
+                borderColor: colors.border,
+                paddingHorizontal: 12,
+                paddingVertical: 10,
+                fontFamily: "DMSans_400Regular",
+                fontSize: 14,
+                color: primaryText,
+                backgroundColor: secondaryBackground
+              }}
+            />
+            <TextInput
+              keyboardType="number-pad"
+              value={minute}
+              onChangeText={setMinute}
+              placeholder="Min"
+              placeholderTextColor={mutedText}
+              style={{
+                flex: 1,
+                borderWidth: 1,
+                borderColor: colors.border,
+                paddingHorizontal: 12,
+                paddingVertical: 10,
+                fontFamily: "DMSans_400Regular",
+                fontSize: 14,
+                color: primaryText,
+                backgroundColor: secondaryBackground
+              }}
+            />
+          </View>
+
+          <PrimaryButton
+            label="Save reminder"
+            loading={reminderMutation.isPending}
+            onPress={() => reminderMutation.mutate()}
+            disabled={!supported}
+            backgroundColor={colors.brand}
+            borderColor={colors.brand}
+            textColor="#FFFFFF"
+          />
+        </SectionCard>
+
+        <SectionCard
+          icon="credit-card-outline"
+          iconColor={colors.blush}
+          title="Billing"
+          description="Manage your EverNest subscription."
+          index={4}
+          backgroundColor={colors.surface}
+          borderColor={colors.border}
+          textColor={primaryText}
+          descriptionColor={mutedText}
+        >
+          <PrimaryButton
+            label="Open checkout"
+            loading={billingMutation.isPending}
+            onPress={() => billingMutation.mutate()}
+            backgroundColor={colors.surfaceSecondary}
+            borderColor={colors.border}
+            textColor={primaryText}
+            variant="secondary"
+          />
+        </SectionCard>
+
+        <SectionCard
+          icon="download-outline"
+          iconColor={colors.sage}
+          title="Exports"
+          description="Send an export package to your cloud storage."
+          index={5}
+          backgroundColor={colors.surface}
+          borderColor={colors.border}
+          textColor={primaryText}
+          descriptionColor={mutedText}
+        >
+          <View style={{ gap: 8 }}>
+            <PrimaryButton
+              label="Google Drive export"
+              onPress={() => exportMutation.mutate("google_drive")}
+              backgroundColor={colors.surfaceSecondary}
+              borderColor={colors.border}
+              textColor={primaryText}
+              variant="secondary"
+            />
+            <PrimaryButton
+              label="iCloud export"
+              onPress={() => exportMutation.mutate("icloud")}
+              backgroundColor={colors.surfaceSecondary}
+              borderColor={colors.border}
+              textColor={primaryText}
+              variant="secondary"
+            />
+            <PrimaryButton
+              label="Direct download"
+              onPress={() => exportMutation.mutate("download")}
+              backgroundColor={colors.surfaceSecondary}
+              borderColor={colors.border}
+              textColor={primaryText}
+              variant="secondary"
+            />
+          </View>
+
+          {(exportsQuery.data ?? []).length > 0 ? (
+            <View style={{ marginTop: 12, gap: 8 }}>
+              {(exportsQuery.data ?? []).slice(0, 4).map((job) => (
+                <View
+                  key={job.id}
+                  style={{
+                    borderWidth: 1,
+                    borderColor: colors.border,
+                    backgroundColor: secondaryBackground,
+                    padding: 12
+                  }}
+                >
+                  <Text style={{ fontFamily: "DMSans_400Regular", fontSize: 12, color: primaryText }}>
+                    {job.target} · {job.status}
+                  </Text>
+                  <Text style={{ fontFamily: "DMSans_400Regular", fontSize: 10, color: mutedText, marginTop: 4 }}>
+                    {new Date(job.createdAt).toLocaleString()}
+                  </Text>
+                  {job.resultUrl ? (
+                    <Pressable
+                      onPress={() => void Linking.openURL(job.resultUrl!)}
+                      style={{
+                        marginTop: 8,
+                        alignSelf: "flex-start",
+                        borderWidth: 1,
+                        borderColor: colors.border,
+                        paddingHorizontal: 12,
+                        paddingVertical: BUTTON_PADDING_Y
+                      }}
+                    >
+                      <Text style={{ fontFamily: "DMSans_400Regular", fontSize: 10, color: primaryText }}>
+                        Open link
+                      </Text>
+                    </Pressable>
+                  ) : null}
+                </View>
+              ))}
+            </View>
+          ) : null}
+        </SectionCard>
+
+        <SectionCard
+          icon="logout"
+          iconColor={mutedText}
+          title="Session"
+          description="Sign out of this device."
+          index={6}
+          backgroundColor={colors.surface}
+          borderColor={colors.border}
+          textColor={primaryText}
+          descriptionColor={mutedText}
+        >
+          <PrimaryButton
+            label="Sign out"
+            onPress={() => setShowSignOutModal(true)}
+            backgroundColor={colors.surfaceSecondary}
+            borderColor={colors.border}
+            textColor={primaryText}
+            variant="secondary"
+          />
+        </SectionCard>
+
+        <MotiView
+          from={{ opacity: 0, translateY: 10 }}
+          animate={{ opacity: 1, translateY: 0 }}
+          transition={{ type: "timing", duration: 320, delay: 350 }}
+          style={{
+            marginTop: 16,
+            backgroundColor: colors.dangerBackground,
+            padding: 18,
+            borderWidth: 1,
+            borderColor: colors.danger
+          }}
+        >
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 12 }}>
+            <View style={{ width: 38, height: 38, backgroundColor: "rgba(255,255,255,0.25)", alignItems: "center", justifyContent: "center" }}>
+              <MaterialCommunityIcons name="alert-circle-outline" size={20} color={colors.danger} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={{ fontFamily: "DMSans_500Medium", fontSize: 14, color: primaryText }}>Danger zone</Text>
+              <Text style={{ fontFamily: "DMSans_400Regular", fontSize: 11, color: mutedText, marginTop: 2 }}>
+                Delete your account and all data. This cannot be undone.
+              </Text>
+            </View>
+          </View>
+
+          <SettingsInput
+            value={deleteConfirmation}
+            onChangeText={setDeleteConfirmation}
+            placeholder="Type DELETE to confirm"
+            placeholderTextColor={mutedText}
+            textColor={primaryText}
+            backgroundColor="rgba(255,255,255,0.5)"
+            borderColor="rgba(255,255,255,0.55)"
+            autoCapitalize="characters"
+          />
+
+          <PrimaryButton
+            label="Delete account"
+            loading={deleteAccountMutation.isPending}
+            onPress={() => deleteAccountMutation.mutate()}
+            backgroundColor={colors.danger}
+            borderColor={colors.danger}
+            textColor="#FFFFFF"
+            variant="danger"
+          />
+        </MotiView>
+
+        <View style={{ marginTop: 30, alignItems: "center" }}>
+          <Text style={{ fontFamily: "DMSans_500Medium", fontSize: 13, color: mutedText }}>EverNest v0.1.0</Text>
+          <Text style={{ fontFamily: "DMSans_400Regular", fontSize: 11, color: mutedText, marginTop: 4 }}>
+            Built for families. Made with care.
+          </Text>
         </View>
       </ScrollView>
+
+      <Modal
+        visible={showSignOutModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowSignOutModal(false)}
+      >
+        <View
+          style={{
+            flex: 1,
+            backgroundColor: "rgba(0,0,0,0.45)",
+            justifyContent: "center",
+            paddingHorizontal: 20
+          }}
+        >
+          <Pressable style={{ position: "absolute", top: 0, right: 0, bottom: 0, left: 0 }} onPress={() => setShowSignOutModal(false)} />
+          <View
+            style={{
+              borderWidth: 1,
+              borderColor: colors.border,
+              backgroundColor: colors.surface,
+              padding: 20,
+              gap: 14
+            }}
+          >
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+              <View
+                style={{
+                  width: 40,
+                  height: 40,
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                  backgroundColor: colors.surfaceSecondary,
+                  alignItems: "center",
+                  justifyContent: "center"
+                }}
+              >
+                <MaterialCommunityIcons name="logout" size={18} color={colors.text} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontFamily: "DMSans_500Medium", fontSize: 15, color: colors.text }}>
+                  Sign out?
+                </Text>
+                <Text style={{ fontFamily: "DMSans_400Regular", fontSize: 12, color: colors.textMuted, marginTop: 2 }}>
+                  You will need to sign back in on this device to continue.
+                </Text>
+              </View>
+            </View>
+
+            <View style={{ flexDirection: "row", gap: 10 }}>
+              <Pressable
+                onPress={() => setShowSignOutModal(false)}
+                style={{
+                  flex: 1,
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                  backgroundColor: colors.surfaceSecondary,
+                  paddingVertical: BUTTON_PADDING_Y,
+                  paddingHorizontal: 14
+                }}
+              >
+                <Text style={{ textAlign: "center", fontFamily: "DMSans_400Regular", fontSize: 13, color: colors.text }}>
+                  Cancel
+                </Text>
+              </Pressable>
+              <Pressable
+                onPress={() => {
+                  setShowSignOutModal(false);
+                  void logout();
+                }}
+                style={{
+                  flex: 1,
+                  borderWidth: 1,
+                  borderColor: colors.brand,
+                  backgroundColor: colors.brand,
+                  paddingVertical: BUTTON_PADDING_Y,
+                  paddingHorizontal: 14
+                }}
+              >
+                <Text style={{ textAlign: "center", fontFamily: "DMSans_500Medium", fontSize: 13, color: "#FFFFFF" }}>
+                  Sign out
+                </Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }

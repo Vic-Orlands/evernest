@@ -3,6 +3,7 @@ import { createCapsuleSchema, createMemorySchema, commentSchema, reactionSchema,
 import { Capsule, ExportJob, MemoryComment, MemoryDetails, MemoryItem, MemoryReaction, ReminderRule } from "@/lib/types";
 import { requireCurrentUserId } from "@/lib/current-user";
 import { toSupabaseSetupError } from "@/lib/supabase-setup";
+import { File } from "expo-file-system";
 
 type CreateMemoryInput = {
   familyId: string;
@@ -35,10 +36,9 @@ function extensionFromUri(uri: string, fallback: string): string {
 }
 
 async function uploadPrivateFile(path: string, uri: string, mimeType?: string): Promise<void> {
-  const response = await fetch(uri);
-  const blob = await response.blob();
+  const file = new File(uri);
 
-  const { error } = await supabase.storage.from("memory-media").upload(path, blob, {
+  const { error } = await supabase.storage.from("memory-media").upload(path, file, {
     upsert: false,
     contentType: mimeType
   });

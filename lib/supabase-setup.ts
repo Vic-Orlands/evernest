@@ -28,6 +28,7 @@ export function toSupabaseSetupError(error: unknown): Error {
   if (isSupabaseSchemaMissingError(error)) {
     return new Error(
       "Supabase schema is missing. Apply supabase/sql/001_init.sql, 002_security_and_collab.sql, 003_exports_storage.sql, 004_profiles_family_read.sql, and 005_families_owner_read.sql to your Supabase project."
+        + " Then apply supabase/sql/006_profile_appearance.sql for avatars and personalization."
     );
   }
 

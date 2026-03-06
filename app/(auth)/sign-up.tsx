@@ -1,21 +1,15 @@
 import { useState } from "react";
 import { Link, router } from "expo-router";
-import {
-  Alert,
-  KeyboardAvoidingView,
-  Platform,
-  Pressable,
-  Text,
-  TextInput,
-  View
-} from "react-native";
+import { Alert, KeyboardAvoidingView, Platform, Pressable, Text, TextInput, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { SocialAuthButton } from "@/components/auth/social-auth-button";
 import { signInWithSocial, signUp } from "@/lib/auth";
+import { useAppTheme } from "@/hooks/use-app-theme";
 
 export default function SignUpScreen() {
   const insets = useSafeAreaInsets();
+  const { colors } = useAppTheme();
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -52,100 +46,127 @@ export default function SignUpScreen() {
   };
 
   return (
-    <KeyboardAvoidingView
-      behavior={Platform.OS === "ios" ? "padding" : "height"}
-      style={{ backgroundColor: "#1A1612" }}
-    >
-      <View style={{ paddingHorizontal: 24, paddingTop: 24, paddingBottom: Math.max(insets.bottom, 10) + 16, gap: 20 }}>
-        <View className="gap-2">
-          <Text className="font-display text-[34px] leading-[36px] text-cream">Create account</Text>
-          <Text className="font-body text-[13px] leading-5 text-moonDim">
+    <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ backgroundColor: colors.surface }}>
+      <View style={{ paddingHorizontal: 24, paddingTop: 24, paddingBottom: Math.max(insets.bottom, 10) + 18, gap: 20 }}>
+        <View style={{ gap: 8 }}>
+          <Text style={{ fontFamily: "InstrumentSerif_400Regular", fontSize: 34, lineHeight: 36, color: colors.text }}>
+            Create account
+          </Text>
+          <Text style={{ fontFamily: "DMSans_400Regular", fontSize: 13, lineHeight: 20, color: colors.textMuted }}>
             Start building a shared archive of everyday memories.
           </Text>
         </View>
 
-        <View className="border border-night4 bg-night3/88 p-4">
-          <Text className="mb-1 font-body text-[11px] uppercase tracking-[1.2px] text-moonDim">Full name</Text>
+        <View style={{ borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surfaceSecondary, padding: 16, borderRadius: 22 }}>
+          <Text style={{ marginBottom: 6, fontFamily: "DMSans_400Regular", fontSize: 11, textTransform: "uppercase", letterSpacing: 1.2, color: colors.textMuted }}>
+            Full name
+          </Text>
           <TextInput
             placeholder="Sarah Johnson"
-            placeholderTextColor="#8A8070"
+            placeholderTextColor={colors.textMuted}
             value={name}
             onChangeText={setName}
-            className="border border-night4 bg-night4/35 px-4 py-3 font-body text-[14px] text-moon"
+            style={{
+              borderWidth: 1,
+              borderColor: colors.border,
+              borderRadius: 14,
+              backgroundColor: colors.surface,
+              paddingHorizontal: 16,
+              paddingVertical: 12,
+              fontFamily: "DMSans_400Regular",
+              fontSize: 14,
+              color: colors.text
+            }}
           />
 
-          <Text className="mb-1 mt-3 font-body text-[11px] uppercase tracking-[1.2px] text-moonDim">Email</Text>
+          <Text style={{ marginBottom: 6, marginTop: 12, fontFamily: "DMSans_400Regular", fontSize: 11, textTransform: "uppercase", letterSpacing: 1.2, color: colors.textMuted }}>
+            Email
+          </Text>
           <TextInput
             autoCapitalize="none"
             keyboardType="email-address"
             placeholder="you@email.com"
-            placeholderTextColor="#8A8070"
+            placeholderTextColor={colors.textMuted}
             value={email}
             onChangeText={setEmail}
-            className="border border-night4 bg-night4/35 px-4 py-3 font-body text-[14px] text-moon"
+            style={{
+              borderWidth: 1,
+              borderColor: colors.border,
+              borderRadius: 14,
+              backgroundColor: colors.surface,
+              paddingHorizontal: 16,
+              paddingVertical: 12,
+              fontFamily: "DMSans_400Regular",
+              fontSize: 14,
+              color: colors.text
+            }}
           />
 
-          <Text className="mb-1 mt-3 font-body text-[11px] uppercase tracking-[1.2px] text-moonDim">Password</Text>
+          <Text style={{ marginBottom: 6, marginTop: 12, fontFamily: "DMSans_400Regular", fontSize: 11, textTransform: "uppercase", letterSpacing: 1.2, color: colors.textMuted }}>
+            Password
+          </Text>
           <View>
             <TextInput
               secureTextEntry={!showPassword}
               placeholder="At least 10 characters"
-              placeholderTextColor="#8A8070"
+              placeholderTextColor={colors.textMuted}
               value={password}
               onChangeText={setPassword}
-              className="border border-night4 bg-night4/35 px-4 py-3 pr-12 font-body text-[14px] text-moon"
+              style={{
+                borderWidth: 1,
+                borderColor: colors.border,
+                borderRadius: 14,
+                backgroundColor: colors.surface,
+                paddingHorizontal: 16,
+                paddingVertical: 12,
+                paddingRight: 46,
+                fontFamily: "DMSans_400Regular",
+                fontSize: 14,
+                color: colors.text
+              }}
             />
-            <Pressable
-              onPress={() => setShowPassword((v) => !v)}
-              className="absolute right-3 top-0 bottom-0 justify-center"
-              hitSlop={8}
-            >
-              <Ionicons name={showPassword ? "eye-off-outline" : "eye-outline"} size={20} color="#8A8070" />
+            <Pressable onPress={() => setShowPassword((value) => !value)} style={{ position: "absolute", right: 12, top: 0, bottom: 0, justifyContent: "center" }}>
+              <Ionicons name={showPassword ? "eye-off-outline" : "eye-outline"} size={20} color={colors.textMuted} />
             </Pressable>
           </View>
 
           {password.length > 0 ? (
-            <Text className="mt-2 font-body text-[11px] text-moonDim">
+            <Text style={{ marginTop: 8, fontFamily: "DMSans_400Regular", fontSize: 11, color: colors.textMuted }}>
               Strength: {password.length < 6 ? "Weak" : password.length < 10 ? "Good" : "Strong"}
             </Text>
           ) : null}
 
-          <Pressable onPress={onSubmit} disabled={loading} className="mt-4 bg-terracotta px-4 py-3">
-            <Text className="text-center font-bodybold text-[14px] text-cream">{loading ? "Creating..." : "Create account"}</Text>
+          <Pressable onPress={onSubmit} disabled={loading} style={{ marginTop: 16, backgroundColor: colors.brand, paddingVertical: 14, borderRadius: 14 }}>
+            <Text style={{ textAlign: "center", fontFamily: "DMSans_500Medium", fontSize: 14, color: "#FFFFFF" }}>
+              {loading ? "Creating..." : "Create account"}
+            </Text>
           </Pressable>
 
-          <View className="my-3 flex-row items-center gap-2">
-            <View className="h-px flex-1 bg-night4" />
-            <Text className="font-body text-[10px] uppercase tracking-[1.2px] text-moonDim">or continue with</Text>
-            <View className="h-px flex-1 bg-night4" />
+          <View style={{ marginVertical: 14, flexDirection: "row", alignItems: "center", gap: 8 }}>
+            <View style={{ flex: 1, height: 1, backgroundColor: colors.border }} />
+            <Text style={{ fontFamily: "DMSans_400Regular", fontSize: 10, textTransform: "uppercase", letterSpacing: 1.2, color: colors.textMuted }}>
+              or continue with
+            </Text>
+            <View style={{ flex: 1, height: 1, backgroundColor: colors.border }} />
           </View>
 
-          <View className="flex-row gap-2">
-            <SocialAuthButton
-              provider="apple"
-              onPress={() => {
-                void onSocial("apple");
-              }}
-              compact
-            />
-            <SocialAuthButton
-              provider="google"
-              onPress={() => {
-                void onSocial("google");
-              }}
-              compact
-            />
+          <View style={{ flexDirection: "row", gap: 8 }}>
+            <SocialAuthButton provider="apple" onPress={() => void onSocial("apple")} compact />
+            <SocialAuthButton provider="google" onPress={() => void onSocial("google")} compact />
           </View>
 
           {socialLoading ? (
-            <Text className="mt-2 text-center font-body text-[11px] text-moonDim">Opening {socialLoading} sign-up…</Text>
+            <Text style={{ marginTop: 10, textAlign: "center", fontFamily: "DMSans_400Regular", fontSize: 11, color: colors.textMuted }}>
+              Opening {socialLoading} sign-up...
+            </Text>
           ) : null}
         </View>
 
         <Link href="/(auth)/sign-in" asChild>
-          <Pressable className="py-1">
-            <Text className="text-center font-body text-[13px] text-moonDim">
-              Already have an account? <Text className="text-terracotta">Sign in</Text>
+          <Pressable style={{ paddingVertical: 4 }}>
+            <Text style={{ textAlign: "center", fontFamily: "DMSans_400Regular", fontSize: 13, color: colors.textMuted }}>
+              Already have an account?{" "}
+              <Text style={{ color: colors.brand }}>Sign in</Text>
             </Text>
           </Pressable>
         </Link>

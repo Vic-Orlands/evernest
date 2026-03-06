@@ -8,6 +8,7 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import { useFonts } from "expo-font";
 import { DMSans_400Regular, DMSans_500Medium } from "@expo-google-fonts/dm-sans";
 import { InstrumentSerif_400Regular } from "@expo-google-fonts/instrument-serif";
+import { AppThemeProvider, useAppTheme } from "@/hooks/use-app-theme";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -18,6 +19,28 @@ const queryClient = new QueryClient({
     }
   }
 });
+
+function RootNavigator() {
+  const { colors, ready } = useAppTheme();
+
+  if (!ready) {
+    return null;
+  }
+
+  return (
+    <>
+      <StatusBar style={colors.statusBar} />
+      <Stack screenOptions={{ headerShown: false }}>
+        <Stack.Screen name="(auth)" />
+        <Stack.Screen name="(tabs)" />
+        <Stack.Screen name="personalize" options={{ animation: "fade" }} />
+        <Stack.Screen name="avatar" options={{ animation: "slide_from_right" }} />
+        <Stack.Screen name="accept-invite" options={{ presentation: "modal" }} />
+        <Stack.Screen name="auth/callback" options={{ presentation: "card" }} />
+      </Stack>
+    </>
+  );
+}
 
 export default function RootLayout() {
   const [fontsLoaded] = useFonts({
@@ -34,13 +57,9 @@ export default function RootLayout() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
         <QueryClientProvider client={queryClient}>
-          <StatusBar style="light" />
-          <Stack screenOptions={{ headerShown: false }}>
-            <Stack.Screen name="(auth)" />
-            <Stack.Screen name="(tabs)" />
-            <Stack.Screen name="accept-invite" options={{ presentation: "modal" }} />
-            <Stack.Screen name="auth/callback" options={{ presentation: "card" }} />
-          </Stack>
+          <AppThemeProvider>
+            <RootNavigator />
+          </AppThemeProvider>
         </QueryClientProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>

@@ -1,10 +1,47 @@
 import { Text, View } from "react-native";
+import { AppTheme } from "@/lib/theme";
 
-export function EmptyState({ title, body }: { title: string; body: string }) {
+export function EmptyState({
+  title,
+  body,
+  colors
+}: {
+  title: string;
+  body: string;
+  colors: AppTheme;
+}) {
   return (
-    <View className="rounded-3xl border border-dashed border-night4 bg-night3/60 p-6">
-      <Text className="text-center font-display text-2xl text-cream">{title}</Text>
-      <Text className="mt-2 text-center font-body text-sm text-moonDim">{body}</Text>
+    <View
+      style={{
+        borderWidth: 1,
+        borderStyle: "dashed",
+        borderColor: colors.border,
+        backgroundColor: colors.surface,
+        padding: 24
+      }}
+    >
+      <Text
+        style={{
+          textAlign: "center",
+          fontFamily: "InstrumentSerif_400Regular",
+          fontSize: 26,
+          color: colors.text
+        }}
+      >
+        {title}
+      </Text>
+      <Text
+        style={{
+          textAlign: "center",
+          fontFamily: "DMSans_400Regular",
+          fontSize: 14,
+          lineHeight: 22,
+          color: colors.textMuted,
+          marginTop: 8
+        }}
+      >
+        {body}
+      </Text>
     </View>
   );
 }

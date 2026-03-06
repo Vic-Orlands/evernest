@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Image,
@@ -6,6 +6,7 @@ import {
   RefreshControl,
   ScrollView,
   Text,
+  TextInput,
   View
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -16,15 +17,30 @@ import { router } from "expo-router";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { ChildSwitcher } from "@/components/child-switcher";
 import { EmptyState } from "@/components/empty-state";
+import { ProfileAvatar } from "@/components/profile-avatar";
 import { useWorkspace } from "@/hooks/use-workspace";
+import { useProfile } from "@/hooks/use-profile";
 import { useMemoryRealtime } from "@/hooks/use-memory-realtime";
+import { useAppTheme } from "@/hooks/use-app-theme";
 import { queryKeys } from "@/lib/query-keys";
 import { listMemories, listOnThisDay } from "@/lib/repositories";
-import { gradients, T } from "@/lib/theme";
+import { AppTheme } from "@/lib/theme";
 import { MemoryItem } from "@/lib/types";
 import { listMilestones } from "@/lib/workspace";
 
-const gradientSet = Object.values(gradients);
+const BUTTON_PADDING_Y = 11;
+const MONTH_PREVIEW_LIMIT = 4;
+const MONTH_RAIL_PREVIEW_COUNT = 3;
+
+type ThemeColors = ReturnType<typeof useAppTheme>["colors"];
+type ThemeGradients = ReturnType<typeof useAppTheme>["gradients"];
+
+type MonthGroup = {
+  key: string;
+  label: string;
+  count: number;
+  items: MemoryItem[];
+};
 
 function getGreeting(): string {
   const hour = new Date().getHours();
@@ -35,9 +51,7 @@ function getGreeting(): string {
 
 function calculateStreak(memories: MemoryItem[]): number {
   const uniqueDays = Array.from(
-    new Set(
-      memories.map((memory) => new Date(memory.capturedAt).toDateString())
-    )
+    new Set(memories.map((memory) => new Date(memory.capturedAt).toDateString()))
   ).map((day) => new Date(day));
 
   uniqueDays.sort((a, b) => b.getTime() - a.getTime());
@@ -63,7 +77,12 @@ function calculateStreak(memories: MemoryItem[]): number {
   return streak;
 }
 
-function monthLabel(dateIso: string): string {
+function getMonthKey(dateIso: string): string {
+  const date = new Date(dateIso);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function getMonthLabel(dateIso: string): string {
   return new Date(dateIso).toLocaleDateString(undefined, {
     month: "long",
     year: "numeric"
@@ -72,44 +91,82 @@ function monthLabel(dateIso: string): string {
 
 function hasCapturedToday(memories: MemoryItem[]): boolean {
   const today = new Date().toDateString();
-  return memories.some(
-    (m) => new Date(m.capturedAt).toDateString() === today
+  return memories.some((memory) => new Date(memory.capturedAt).toDateString() === today);
+}
+
+function FilterInput({
+  value,
+  onChangeText,
+  placeholder,
+  colors,
+  keyboardType
+}: {
+  value: string;
+  onChangeText: (text: string) => void;
+  placeholder: string;
+  colors: AppTheme;
+  keyboardType?: "default" | "number-pad";
+}) {
+  return (
+    <TextInput
+      value={value}
+      onChangeText={onChangeText}
+      placeholder={placeholder}
+      placeholderTextColor={colors.textMuted}
+      keyboardType={keyboardType}
+      style={{
+        flex: 1,
+        minWidth: 120,
+        borderWidth: 1,
+        borderColor: colors.border,
+        backgroundColor: colors.surfaceSecondary,
+        paddingHorizontal: 14,
+        paddingVertical: 10,
+        fontFamily: "DMSans_400Regular",
+        fontSize: 13,
+        color: colors.text
+      }}
+    />
   );
 }
 
 function MemoryTile({
-  memory,
+  item,
   big,
-  index
+  index,
+  colors,
+  gradients
 }: {
-  memory: MemoryItem;
+  item: MemoryItem;
   big?: boolean;
   index: number;
+  colors: ThemeColors;
+  gradients: ThemeGradients;
 }) {
+  const gradientSet = Object.values(gradients);
   const gradient = gradientSet[index % gradientSet.length];
-  const hasImage = memory.mediaType === "image" && memory.mediaUrl;
+  const showImage = item.mediaType === "image" && Boolean(item.mediaUrl);
 
   return (
     <MotiView
       from={{ opacity: 0, translateY: 10 }}
       animate={{ opacity: 1, translateY: 0 }}
-      transition={{ type: "timing", duration: 340, delay: index * 35 }}
+      transition={{ type: "timing", duration: 320, delay: index * 35 }}
       style={{ flex: big ? undefined : 1 }}
     >
-      <Pressable onPress={() => router.push(`/memory/${memory.id}`)}>
+      <Pressable onPress={() => router.push(`/memory/${item.id}`)}>
         <View
           style={{
-            height: big ? 168 : 104,
-            borderRadius: 18,
+            height: big ? 188 : 118,
             overflow: "hidden",
             borderWidth: 1,
-            borderColor: "rgba(255,255,255,0.06)",
-            backgroundColor: T.night3
+            borderColor: colors.border,
+            backgroundColor: colors.surface
           }}
         >
-          {hasImage ? (
+          {showImage ? (
             <Image
-              source={{ uri: memory.mediaUrl }}
+              source={{ uri: item.mediaUrl }}
               resizeMode="cover"
               style={{ width: "100%", height: "100%" }}
             />
@@ -118,48 +175,48 @@ function MemoryTile({
               colors={gradient}
               start={{ x: 0, y: 0 }}
               end={{ x: 1, y: 1 }}
-              style={{ width: "100%", height: "100%" }}
-            />
+              style={{ width: "100%", height: "100%", alignItems: "center", justifyContent: "center" }}
+            >
+              <MaterialCommunityIcons
+                name={
+                  item.mediaType === "video"
+                    ? "video-outline"
+                    : item.mediaType === "voice"
+                      ? "microphone-outline"
+                      : "image-outline"
+                }
+                size={26}
+                color="#FFFFFF"
+              />
+            </LinearGradient>
           )}
 
           <LinearGradient
-            colors={["rgba(0,0,0,0)", "rgba(0,0,0,0.82)"]}
-            style={{
-              position: "absolute",
-              left: 0,
-              right: 0,
-              bottom: 0,
-              padding: 12
-            }}
+            colors={["rgba(0,0,0,0)", "rgba(0,0,0,0.84)"]}
+            style={{ position: "absolute", left: 0, right: 0, bottom: 0, padding: 12 }}
           >
-            <View
-              style={{
-                flexDirection: "row",
-                alignItems: "center",
-                justifyContent: "space-between"
-              }}
-            >
-              <View style={{ flex: 1, paddingRight: 12 }}>
+            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+              <View style={{ flex: 1 }}>
                 <Text
                   numberOfLines={1}
                   style={{
-                    color: "rgba(255,255,255,0.95)",
+                    color: "#FFFFFF",
                     fontFamily: "DMSans_500Medium",
-                    fontSize: big ? 13 : 11
+                    fontSize: big ? 14 : 11
                   }}
                 >
-                  {memory.title}
+                  {item.title}
                 </Text>
                 <Text
                   numberOfLines={1}
                   style={{
-                    color: "rgba(255,255,255,0.74)",
+                    color: "rgba(255,255,255,0.72)",
                     fontFamily: "DMSans_400Regular",
                     fontSize: 10,
                     marginTop: 3
                   }}
                 >
-                  {new Date(memory.capturedAt).toLocaleDateString(undefined, {
+                  {new Date(item.capturedAt).toLocaleDateString(undefined, {
                     month: "short",
                     day: "numeric"
                   })}
@@ -167,33 +224,29 @@ function MemoryTile({
               </View>
               <View
                 style={{
+                  minWidth: 50,
                   alignItems: "center",
                   gap: 4,
                   borderWidth: 1,
-                  borderColor: "rgba(255,255,255,0.10)",
-                  backgroundColor: "rgba(0,0,0,0.30)",
+                  borderColor: "rgba(255,255,255,0.14)",
+                  backgroundColor: "rgba(0,0,0,0.3)",
                   paddingHorizontal: 8,
-                  paddingVertical: 4,
-                  borderRadius: 8
+                  paddingVertical: 5
                 }}
               >
                 <MaterialCommunityIcons
                   name={
-                    memory.mediaType === "video"
+                    item.mediaType === "video"
                       ? "video-outline"
-                      : "image-outline"
+                      : item.mediaType === "voice"
+                        ? "microphone-outline"
+                        : "image-outline"
                   }
                   size={14}
-                  color={T.cream}
+                  color="#FFFFFF"
                 />
-                <Text
-                  style={{
-                    fontFamily: "DMSans_400Regular",
-                    fontSize: 9,
-                    color: T.moon
-                  }}
-                >
-                  {memory.commentsCount + memory.reactionsCount}
+                <Text style={{ fontFamily: "DMSans_400Regular", fontSize: 9, color: "#FFFFFF" }}>
+                  {item.commentsCount + item.reactionsCount}
                 </Text>
               </View>
             </View>
@@ -208,12 +261,14 @@ function QuickAction({
   icon,
   label,
   accent,
-  onPress
+  onPress,
+  colors
 }: {
   icon: keyof typeof MaterialCommunityIcons.glyphMap;
   label: string;
   accent: string;
   onPress: () => void;
+  colors: ThemeColors;
 }) {
   return (
     <Pressable
@@ -221,19 +276,17 @@ function QuickAction({
       style={{
         flex: 1,
         borderWidth: 1,
-        borderColor: T.night4,
-        backgroundColor: T.night3,
+        borderColor: colors.border,
+        backgroundColor: colors.surface,
         paddingHorizontal: 12,
-        paddingVertical: 16,
-        borderRadius: 16
+        paddingVertical: 14
       }}
     >
       <View
         style={{
           width: 36,
           height: 36,
-          borderRadius: 12,
-          backgroundColor: `${accent}22`,
+          backgroundColor: `${accent}20`,
           alignItems: "center",
           justifyContent: "center",
           marginBottom: 10
@@ -241,20 +294,64 @@ function QuickAction({
       >
         <MaterialCommunityIcons name={icon} size={18} color={accent} />
       </View>
-      <Text
-        style={{
-          fontFamily: "DMSans_500Medium",
-          fontSize: 12,
-          color: T.cream
-        }}
-      >
+      <Text style={{ fontFamily: "DMSans_500Medium", fontSize: 12, color: colors.text }}>
         {label}
       </Text>
     </Pressable>
   );
 }
 
+function MonthRailCard({
+  month,
+  selected,
+  onPress,
+  colors,
+  gradients
+}: {
+  month: MonthGroup;
+  selected: boolean;
+  onPress: () => void;
+  colors: ThemeColors;
+  gradients: ThemeGradients;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      style={{
+        width: 190,
+        borderWidth: 1,
+        borderColor: selected ? colors.brand : colors.border,
+        backgroundColor: selected ? colors.brandBackground : colors.surface,
+        padding: 14,
+        gap: 12
+      }}
+    >
+      <View style={{ flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 8 }}>
+        <View style={{ flex: 1 }}>
+          <Text style={{ fontFamily: "DMSans_500Medium", fontSize: 14, color: colors.text }}>
+            {month.label}
+          </Text>
+          <Text style={{ fontFamily: "DMSans_400Regular", fontSize: 11, color: colors.textMuted, marginTop: 3 }}>
+            {month.count} {month.count === 1 ? "memory" : "memories"}
+          </Text>
+        </View>
+        <MaterialCommunityIcons name="chevron-right" size={18} color={selected ? colors.brand : colors.textMuted} />
+      </View>
+
+      <View style={{ flexDirection: "row", gap: 8 }}>
+        {month.items.slice(0, MONTH_RAIL_PREVIEW_COUNT).map((item, index) => (
+          <View key={item.id} style={{ flex: 1 }}>
+            <MemoryTile item={item} index={index} colors={colors} gradients={gradients} />
+          </View>
+        ))}
+      </View>
+    </Pressable>
+  );
+}
+
 export default function HomeScreen() {
+  const { colors, gradients } = useAppTheme();
+  const { profile } = useProfile();
   const {
     workspace,
     workspaceLoading,
@@ -265,61 +362,118 @@ export default function HomeScreen() {
     user
   } = useWorkspace();
 
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [monthFilter, setMonthFilter] = useState("");
+  const [yearFilter, setYearFilter] = useState("");
+  const [dateFilter, setDateFilter] = useState("");
+  const [selectedMonthKey, setSelectedMonthKey] = useState<string | null>(null);
+  const [expandedMonthKey, setExpandedMonthKey] = useState<string | null>(null);
+
   useMemoryRealtime(workspace?.family.id, activeChild?.id);
 
   const memoriesQuery = useQuery({
-    queryKey:
-      workspace && activeChild
-        ? queryKeys.memories(workspace.family.id, activeChild.id)
-        : ["memories", "guest"],
+    queryKey: workspace && activeChild ? queryKeys.memories(workspace.family.id, activeChild.id) : ["memories", "guest"],
     enabled: Boolean(workspace && activeChild),
-    queryFn: async () =>
-      listMemories(workspace!.family.id, activeChild!.id)
+    queryFn: async () => listMemories(workspace!.family.id, activeChild!.id)
   });
 
   const onThisDayQuery = useQuery({
-    queryKey:
-      workspace && activeChild
-        ? queryKeys.onThisDay(workspace.family.id, activeChild.id)
-        : ["on-this-day", "guest"],
+    queryKey: workspace && activeChild ? queryKeys.onThisDay(workspace.family.id, activeChild.id) : ["on-this-day", "guest"],
     enabled: Boolean(workspace && activeChild),
-    queryFn: async () =>
-      listOnThisDay(workspace!.family.id, activeChild!.id)
+    queryFn: async () => listOnThisDay(workspace!.family.id, activeChild!.id)
   });
 
   const milestonesQuery = useQuery({
-    queryKey: activeChild
-      ? queryKeys.milestones(activeChild.id)
-      : ["milestones", "guest"],
+    queryKey: activeChild ? queryKeys.milestones(activeChild.id) : ["milestones", "guest"],
     enabled: Boolean(activeChild),
     queryFn: async () => listMilestones(activeChild!.id)
   });
 
-  const sections = useMemo(() => {
-    const grouped = (memoriesQuery.data ?? []).reduce<
-      Record<string, MemoryItem[]>
-    >((acc, memory) => {
-      const key = monthLabel(memory.capturedAt);
-      acc[key] = acc[key] ? [...acc[key], memory] : [memory];
+  const allMemories = memoriesQuery.data ?? [];
+
+  const filteredMemories = useMemo(() => {
+    const normalizedQuery = query.trim().toLowerCase();
+    const normalizedMonth = monthFilter.trim().toLowerCase();
+    const normalizedYear = yearFilter.trim();
+    const normalizedDate = dateFilter.trim();
+
+    return allMemories.filter((memory) => {
+      const capturedDate = new Date(memory.capturedAt);
+      const monthName = capturedDate.toLocaleDateString(undefined, { month: "long" }).toLowerCase();
+      const monthNumber = String(capturedDate.getMonth() + 1).padStart(2, "0");
+      const year = String(capturedDate.getFullYear());
+      const isoDate = memory.capturedAt.slice(0, 10);
+      const haystack = `${memory.title} ${memory.note} ${memory.tags.join(" ")} ${memory.createdByName}`.toLowerCase();
+
+      const matchesQuery =
+        normalizedQuery.length === 0 ||
+        haystack.includes(normalizedQuery) ||
+        isoDate.includes(normalizedQuery) ||
+        getMonthLabel(memory.capturedAt).toLowerCase().includes(normalizedQuery);
+
+      const matchesMonth =
+        normalizedMonth.length === 0 ||
+        monthName.includes(normalizedMonth) ||
+        monthNumber === normalizedMonth.padStart(2, "0");
+
+      const matchesYear = normalizedYear.length === 0 || year.includes(normalizedYear);
+      const matchesDate = normalizedDate.length === 0 || isoDate === normalizedDate;
+
+      return matchesQuery && matchesMonth && matchesYear && matchesDate;
+    });
+  }, [allMemories, dateFilter, monthFilter, query, yearFilter]);
+
+  const monthGroups = useMemo(() => {
+    const grouped = filteredMemories.reduce<Record<string, MonthGroup>>((acc, memory) => {
+      const key = getMonthKey(memory.capturedAt);
+      if (!acc[key]) {
+        acc[key] = {
+          key,
+          label: getMonthLabel(memory.capturedAt),
+          count: 0,
+          items: []
+        };
+      }
+      acc[key].items.push(memory);
+      acc[key].count += 1;
       return acc;
     }, {});
-    return Object.entries(grouped);
-  }, [memoriesQuery.data]);
+
+    return Object.values(grouped);
+  }, [filteredMemories]);
+
+  useEffect(() => {
+    if (!monthGroups.length) {
+      setSelectedMonthKey(null);
+      setExpandedMonthKey(null);
+      return;
+    }
+
+    const currentExists = selectedMonthKey && monthGroups.some((group) => group.key === selectedMonthKey);
+    if (!currentExists) {
+      setSelectedMonthKey(monthGroups[0].key);
+      setExpandedMonthKey(null);
+    }
+  }, [monthGroups, selectedMonthKey]);
+
+  const selectedMonth = useMemo(
+    () => monthGroups.find((group) => group.key === selectedMonthKey) ?? monthGroups[0] ?? null,
+    [monthGroups, selectedMonthKey]
+  );
+
+  const showingAllForSelectedMonth = selectedMonth && expandedMonthKey === selectedMonth.key;
 
   const refreshAll = async () => {
     await refetchWorkspace();
-    await Promise.all([
-      memoriesQuery.refetch(),
-      onThisDayQuery.refetch(),
-      milestonesQuery.refetch()
-    ]);
+    await Promise.all([memoriesQuery.refetch(), onThisDayQuery.refetch(), milestonesQuery.refetch()]);
   };
 
-  if (workspaceLoading) {
+  if (workspaceLoading || (memoriesQuery.isLoading && !memoriesQuery.data)) {
     return (
-      <SafeAreaView edges={["top"]} className="flex-1 bg-night2">
-        <View className="flex-1 items-center justify-center">
-          <ActivityIndicator color={T.terracotta} />
+      <SafeAreaView edges={["top"]} style={{ flex: 1, backgroundColor: colors.backgroundSecondary }}>
+        <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
+          <ActivityIndicator color={colors.brand} />
         </View>
       </SafeAreaView>
     );
@@ -327,12 +481,9 @@ export default function HomeScreen() {
 
   if (!workspace || !activeChild) {
     return (
-      <SafeAreaView edges={["top"]} className="flex-1 bg-night2">
-        <ScrollView
-          contentInsetAdjustmentBehavior="automatic"
-          className="flex-1 bg-night2"
-        >
-          <View className="px-4 pt-5">
+      <SafeAreaView edges={["top"]} style={{ flex: 1, backgroundColor: colors.backgroundSecondary }}>
+        <ScrollView contentInsetAdjustmentBehavior="automatic" style={{ flex: 1 }}>
+          <View style={{ paddingHorizontal: 16, paddingTop: 20 }}>
             <EmptyState
               title="Workspace unavailable"
               body={
@@ -340,15 +491,22 @@ export default function HomeScreen() {
                   ? workspaceError.message
                   : "Sign in again to bootstrap your family timeline."
               }
+              colors={colors}
             />
             <Pressable
               onPress={() => {
                 void refetchWorkspace();
               }}
-              className="mt-3 border border-night4 px-4 py-3"
-              style={{ borderRadius: 14 }}
+              style={{
+                marginTop: 12,
+                borderWidth: 1,
+                borderColor: colors.border,
+                paddingHorizontal: 16,
+                paddingVertical: BUTTON_PADDING_Y,
+                backgroundColor: colors.surface
+              }}
             >
-              <Text className="text-center font-body text-sm text-moon">
+              <Text style={{ textAlign: "center", fontFamily: "DMSans_400Regular", fontSize: 13, color: colors.text }}>
                 Retry workspace sync
               </Text>
             </Pressable>
@@ -358,48 +516,30 @@ export default function HomeScreen() {
     );
   }
 
-  if (memoriesQuery.isLoading && !memoriesQuery.data) {
-    return (
-      <SafeAreaView edges={["top"]} className="flex-1 bg-night2">
-        <View className="flex-1 items-center justify-center">
-          <ActivityIndicator color={T.terracotta} />
-        </View>
-      </SafeAreaView>
-    );
-  }
-
-  const memories = memoriesQuery.data ?? [];
-  const streak = calculateStreak(memories);
-  const latestMemory = memories[0];
-  const capturedToday = hasCapturedToday(memories);
-  const incompleteMilestones = (milestonesQuery.data ?? [])
-    .filter((item) => !item.completedMemoryId)
-    .slice(0, 3);
-
   if (memoriesQuery.error) {
     return (
-      <SafeAreaView edges={["top"]} className="flex-1 bg-night2">
-        <ScrollView
-          contentInsetAdjustmentBehavior="automatic"
-          className="flex-1 bg-night2"
-        >
-          <View className="px-4 pt-5">
+      <SafeAreaView edges={["top"]} style={{ flex: 1, backgroundColor: colors.backgroundSecondary }}>
+        <ScrollView contentInsetAdjustmentBehavior="automatic" style={{ flex: 1 }}>
+          <View style={{ paddingHorizontal: 16, paddingTop: 20 }}>
             <EmptyState
               title="Could not load memories"
-              body={
-                memoriesQuery.error instanceof Error
-                  ? memoriesQuery.error.message
-                  : "Unknown error"
-              }
+              body={memoriesQuery.error instanceof Error ? memoriesQuery.error.message : "Unknown error"}
+              colors={colors}
             />
             <Pressable
               onPress={() => {
                 void memoriesQuery.refetch();
               }}
-              className="mt-3 border border-night4 px-4 py-3"
-              style={{ borderRadius: 14 }}
+              style={{
+                marginTop: 12,
+                borderWidth: 1,
+                borderColor: colors.border,
+                paddingHorizontal: 16,
+                paddingVertical: BUTTON_PADDING_Y,
+                backgroundColor: colors.surface
+              }}
             >
-              <Text className="text-center font-body text-sm text-moon">
+              <Text style={{ textAlign: "center", fontFamily: "DMSans_400Regular", fontSize: 13, color: colors.text }}>
                 Retry memories
               </Text>
             </Pressable>
@@ -409,379 +549,488 @@ export default function HomeScreen() {
     );
   }
 
+  const memories = filteredMemories;
+  const streak = calculateStreak(allMemories);
+  const latestMemory = memories[0];
+  const capturedToday = hasCapturedToday(allMemories);
+  const incompleteMilestones = (milestonesQuery.data ?? []).filter((item) => !item.completedMemoryId).slice(0, 3);
+  const hasActiveFilters = Boolean(query || monthFilter || yearFilter || dateFilter);
+  const previewItems = selectedMonth?.items.slice(0, MONTH_PREVIEW_LIMIT) ?? [];
+  const remainingItems = selectedMonth?.items.slice(MONTH_PREVIEW_LIMIT) ?? [];
+
   return (
-    <SafeAreaView edges={["top"]} className="flex-1 bg-night2">
+    <SafeAreaView edges={["top"]} style={{ flex: 1, backgroundColor: colors.backgroundSecondary }}>
       <ScrollView
         contentInsetAdjustmentBehavior="automatic"
-        className="flex-1 bg-night2"
-        contentContainerStyle={{ paddingBottom: 120 }}
+        contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 16, paddingBottom: 120, gap: 18 }}
         refreshControl={
           <RefreshControl
-            refreshing={
-              memoriesQuery.isRefetching || onThisDayQuery.isRefetching
-            }
+            refreshing={memoriesQuery.isRefetching || onThisDayQuery.isRefetching}
             onRefresh={() => void refreshAll()}
-            tintColor={T.terracotta}
+            tintColor={colors.brand}
           />
         }
       >
-        <View className="px-5 pt-5">
-          {/* Greeting */}
-          <MotiView
-            from={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ duration: 400 }}
+        <MotiView from={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 380 }}>
+          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 16 }}>
+            <View style={{ flex: 1 }}>
+              <Text style={{ fontFamily: "DMSans_400Regular", fontSize: 11, color: colors.textMuted }}>
+                {getGreeting()},
+              </Text>
+              <Text style={{ fontFamily: "InstrumentSerif_400Regular", fontSize: 38, color: colors.text }}>
+                {user?.name?.split(" ")[0] ?? "Parent"}
+              </Text>
+              <Text style={{ fontFamily: "DMSans_400Regular", fontSize: 13, color: colors.textMuted, marginTop: 4 }}>
+                Your family archive is growing one small day at a time.
+              </Text>
+            </View>
+            <ProfileAvatar
+              imageUrl={profile?.avatarUrl}
+              avatarConfig={profile?.avatarConfig}
+              name={profile?.fullName ?? user?.name}
+              size={56}
+              onPress={() => router.push("/(tabs)/settings")}
+            />
+          </View>
+        </MotiView>
+
+        <View style={{ flexDirection: "row", gap: 12 }}>
+          <View
+            style={{
+              flex: 1,
+              borderWidth: 1,
+              borderColor: colors.brand,
+              backgroundColor: colors.brandBackground,
+              paddingHorizontal: 16,
+              paddingVertical: 14
+            }}
           >
-            <Text className="font-body text-xs text-moonDim">
-              {getGreeting()},
+            <Text style={{ fontFamily: "DMSans_500Medium", fontSize: 14, color: colors.text }}>
+              {streak}-day streak
             </Text>
-            <Text className="font-display text-4xl text-cream">
-              {user?.name?.split(" ")[0] ?? "Parent"}
+            <Text style={{ fontFamily: "DMSans_400Regular", fontSize: 11, color: colors.brandSecondary, marginTop: 6 }}>
+              {capturedToday ? "You captured something today." : "Another little moment keeps the streak alive."}
             </Text>
-            <Text className="mt-1 font-body text-sm text-moonDim">
-              Your family archive is growing one small day at a time.
-            </Text>
-          </MotiView>
-
-          {/* Streak + count cards with animations */}
-          <View className="mt-4 flex-row gap-3">
-            <MotiView
-              from={{ opacity: 0, translateY: 12 }}
-              animate={{ opacity: 1, translateY: 0 }}
-              transition={{ type: "timing", duration: 400, delay: 60 }}
-              style={{
-                flex: 1,
-                borderWidth: 1,
-                borderColor: "rgba(196,98,58,0.40)",
-                backgroundColor: "rgba(196,98,58,0.15)",
-                paddingHorizontal: 16,
-                paddingVertical: 16,
-                borderRadius: 16
-              }}
-            >
-              <Text className="font-bodybold text-sm text-cream">
-                🔥 {streak}-day streak
-              </Text>
-              <Text className="mt-1 font-body text-xs text-blush">
-                {memories.length > 0
-                  ? "You captured something today. Keep the story alive."
-                  : "Start your family timeline today."}
-              </Text>
-            </MotiView>
-            <MotiView
-              from={{ opacity: 0, translateY: 12 }}
-              animate={{ opacity: 1, translateY: 0 }}
-              transition={{ type: "timing", duration: 400, delay: 120 }}
-              style={{
-                width: 112,
-                borderWidth: 1,
-                borderColor: T.night4,
-                backgroundColor: T.night3,
-                paddingHorizontal: 16,
-                paddingVertical: 16,
-                borderRadius: 16
-              }}
-            >
-              <Text
-                style={{
-                  fontFamily: "DMSans_400Regular",
-                  fontSize: 10,
-                  color: T.moonDim,
-                  textTransform: "uppercase",
-                  letterSpacing: 2
-                }}
-              >
-                Memories
-              </Text>
-              <Text className="mt-2 font-display text-3xl text-cream">
-                {memories.length}
-              </Text>
-            </MotiView>
           </View>
+          <View
+            style={{
+              width: 118,
+              borderWidth: 1,
+              borderColor: colors.border,
+              backgroundColor: colors.surface,
+              paddingHorizontal: 16,
+              paddingVertical: 14
+            }}
+          >
+            <Text style={{ fontFamily: "DMSans_400Regular", fontSize: 10, color: colors.textMuted, textTransform: "uppercase", letterSpacing: 1.8 }}>
+              Memories
+            </Text>
+            <Text style={{ fontFamily: "InstrumentSerif_400Regular", fontSize: 32, color: colors.text, marginTop: 6 }}>
+              {allMemories.length}
+            </Text>
+          </View>
+        </View>
 
-          <ChildSwitcher
-            childProfiles={workspace.children}
-            activeChildId={activeChild.id}
-            onSelect={setActiveChildId}
+        <ChildSwitcher
+          childProfiles={workspace.children}
+          activeChildId={activeChild.id}
+          onSelect={setActiveChildId}
+          colors={colors}
+        />
+
+        {!capturedToday && allMemories.length > 0 ? (
+          <Pressable
+            onPress={() => router.push("/(tabs)/capture")}
+            style={{
+              borderWidth: 1,
+              borderColor: colors.gold,
+              backgroundColor: colors.goldBackground,
+              paddingHorizontal: 16,
+              paddingVertical: 14,
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 12
+            }}
+          >
+            <View
+              style={{
+                width: 40,
+                height: 40,
+                backgroundColor: `${colors.gold}22`,
+                alignItems: "center",
+                justifyContent: "center"
+              }}
+            >
+              <MaterialCommunityIcons name="camera-plus-outline" size={20} color={colors.gold} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={{ fontFamily: "DMSans_500Medium", fontSize: 14, color: colors.text }}>
+                No captures today
+              </Text>
+              <Text style={{ fontFamily: "DMSans_400Regular", fontSize: 11, color: colors.textMuted, marginTop: 2 }}>
+                Open the camera and save a small moment.
+              </Text>
+            </View>
+            <MaterialCommunityIcons name="chevron-right" size={18} color={colors.textMuted} />
+          </Pressable>
+        ) : null}
+
+        <View style={{ flexDirection: "row", gap: 12 }}>
+          <QuickAction
+            icon="camera-outline"
+            label="Capture now"
+            accent={colors.brand}
+            onPress={() => router.push("/(tabs)/capture")}
+            colors={colors}
           />
+          <QuickAction
+            icon="archive-lock-outline"
+            label="New capsule"
+            accent={colors.gold}
+            onPress={() => router.push("/(tabs)/capsules")}
+            colors={colors}
+          />
+          <QuickAction
+            icon="account-plus-outline"
+            label="Invite family"
+            accent={colors.sage}
+            onPress={() => router.push("/(tabs)/family")}
+            colors={colors}
+          />
+        </View>
 
-          {/* No captures today prompt */}
-          {!capturedToday && memories.length > 0 ? (
-            <MotiView
-              from={{ opacity: 0, translateY: 8 }}
-              animate={{ opacity: 1, translateY: 0 }}
-              transition={{ type: "timing", duration: 360, delay: 180 }}
-            >
-              <Pressable
-                onPress={() => router.push("/(tabs)/capture")}
-                style={{
-                  marginTop: 16,
-                  borderWidth: 1,
-                  borderColor: "rgba(212,168,67,0.35)",
-                  backgroundColor: "rgba(212,168,67,0.10)",
-                  paddingHorizontal: 16,
-                  paddingVertical: 14,
-                  borderRadius: 16,
-                  flexDirection: "row",
-                  alignItems: "center",
-                  gap: 12
-                }}
-              >
-                <View
-                  style={{
-                    width: 40,
-                    height: 40,
-                    borderRadius: 12,
-                    backgroundColor: "rgba(212,168,67,0.20)",
-                    alignItems: "center",
-                    justifyContent: "center"
-                  }}
-                >
-                  <MaterialCommunityIcons
-                    name="camera-plus-outline"
-                    size={20}
-                    color={T.gold}
-                  />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text className="font-bodybold text-sm text-cream">
-                    No captures today
-                  </Text>
-                  <Text className="mt-1 font-body text-xs text-moonDim">
-                    Open the camera and save a small moment.
-                  </Text>
-                </View>
-                <MaterialCommunityIcons
-                  name="chevron-right"
-                  size={20}
-                  color={T.moonDim}
-                />
-              </Pressable>
-            </MotiView>
-          ) : null}
-
-          {/* Quick actions */}
-          <View className="mt-5 flex-row gap-3">
-            <QuickAction
-              icon="camera-outline"
-              label="Capture now"
-              accent={T.terracotta}
-              onPress={() => router.push("/(tabs)/capture")}
-            />
-            <QuickAction
-              icon="archive-lock-outline"
-              label="New capsule"
-              accent={T.gold}
-              onPress={() => router.push("/(tabs)/capsules")}
-            />
-            <QuickAction
-              icon="account-plus-outline"
-              label="Invite family"
-              accent={T.sageLight}
-              onPress={() => router.push("/(tabs)/family")}
-            />
-          </View>
-
-          {/* Latest memory */}
-          {latestMemory ? (
-            <View className="mt-6">
-              <Text
-                style={{
-                  fontFamily: "DMSans_400Regular",
-                  fontSize: 10,
-                  color: T.terracotta,
-                  textTransform: "uppercase",
-                  letterSpacing: 2.6,
-                  marginBottom: 8
-                }}
-              >
-                Latest moment
+        <View
+          style={{
+            borderWidth: 1,
+            borderColor: colors.border,
+            backgroundColor: colors.surface,
+            padding: 16,
+            gap: 14
+          }}
+        >
+          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+            <View style={{ flex: 1 }}>
+              <Text style={{ fontFamily: "DMSans_500Medium", fontSize: 14, color: colors.text }}>
+                Memory browser
               </Text>
-              <MemoryTile memory={latestMemory} big index={0} />
+              <Text style={{ fontFamily: "DMSans_400Regular", fontSize: 11, color: colors.textMuted, marginTop: 3 }}>
+                Search by title, date, month, or year without flooding the home feed.
+              </Text>
             </View>
-          ) : null}
-
-          {/* Milestones */}
-          {incompleteMilestones.length > 0 ? (
-            <View
+            <Pressable
+              onPress={() => setFiltersOpen((value) => !value)}
               style={{
-                marginTop: 20,
                 borderWidth: 1,
-                borderColor: T.night4,
-                backgroundColor: T.night3,
-                paddingHorizontal: 16,
-                paddingVertical: 16,
-                borderRadius: 16
+                borderColor: filtersOpen || hasActiveFilters ? colors.brand : colors.border,
+                backgroundColor: filtersOpen || hasActiveFilters ? colors.brandBackground : colors.surfaceSecondary,
+                paddingHorizontal: 14,
+                paddingVertical: BUTTON_PADDING_Y,
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 8
               }}
             >
-              <View
-                style={{
-                  flexDirection: "row",
-                  alignItems: "center",
-                  justifyContent: "space-between"
-                }}
-              >
-                <Text className="font-bodybold text-sm text-cream">
-                  Milestones in progress
-                </Text>
-                <Pressable onPress={() => router.push(`/milestones/${activeChild.id}`)}>
-                  <Text style={{ fontFamily: "DMSans_400Regular", fontSize: 12, color: T.terracotta }}>
-                    View all →
-                  </Text>
-                </Pressable>
-              </View>
-              <View className="mt-3 gap-2">
-                {incompleteMilestones.map((milestone) => (
-                  <Pressable
-                    key={milestone.id}
-                    onPress={() => router.push(`/milestones/${activeChild.id}`)}
-                    style={{
-                      borderWidth: 1,
-                      borderColor: T.night4,
-                      backgroundColor: "rgba(46,38,32,0.35)",
-                      paddingHorizontal: 12,
-                      paddingVertical: 12,
-                      borderRadius: 12,
-                      flexDirection: "row",
-                      alignItems: "center",
-                      gap: 10
-                    }}
-                  >
-                    <MaterialCommunityIcons
-                      name="flag-checkered"
-                      size={16}
-                      color={T.gold}
-                    />
-                    <Text style={{ flex: 1 }} className="font-body text-sm text-moon">
-                      {milestone.label}
-                    </Text>
-                    <MaterialCommunityIcons name="chevron-right" size={16} color={T.moonDim} />
-                  </Pressable>
-                ))}
-              </View>
-            </View>
-          ) : null}
-
-          {/* On This Day carousel */}
-          {onThisDayQuery.data?.length ? (
-            <View
-              style={{
-                marginTop: 20,
-                borderWidth: 1,
-                borderColor: "rgba(212,168,67,0.35)",
-                backgroundColor: "rgba(212,168,67,0.10)",
-                paddingVertical: 16,
-                borderRadius: 16
-              }}
-            >
+              <MaterialCommunityIcons
+                name={filtersOpen ? "filter-minus-outline" : "filter-variant"}
+                size={16}
+                color={filtersOpen || hasActiveFilters ? colors.brand : colors.textMuted}
+              />
               <Text
                 style={{
                   fontFamily: "DMSans_500Medium",
-                  fontSize: 11,
-                  color: T.gold,
-                  textTransform: "uppercase",
-                  letterSpacing: 2,
-                  paddingHorizontal: 16,
-                  marginBottom: 12
+                  fontSize: 12,
+                  color: filtersOpen || hasActiveFilters ? colors.brand : colors.text
                 }}
               >
-                ✦ On this day
+                Filter
               </Text>
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={{
-                  paddingHorizontal: 16,
-                  gap: 10
-                }}
-              >
-                {onThisDayQuery.data.map((item) => (
+            </Pressable>
+          </View>
+
+          {filtersOpen ? (
+            <MotiView
+              from={{ opacity: 0, translateY: -8 }}
+              animate={{ opacity: 1, translateY: 0 }}
+              transition={{ type: "timing", duration: 240 }}
+              style={{ gap: 10 }}
+            >
+              <FilterInput
+                value={query}
+                onChangeText={setQuery}
+                placeholder="Search title, note, tag, or exact date"
+                colors={colors}
+              />
+              <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
+                <FilterInput
+                  value={monthFilter}
+                  onChangeText={setMonthFilter}
+                  placeholder="Month"
+                  colors={colors}
+                />
+                <FilterInput
+                  value={yearFilter}
+                  onChangeText={setYearFilter}
+                  placeholder="Year"
+                  colors={colors}
+                  keyboardType="number-pad"
+                />
+                <FilterInput
+                  value={dateFilter}
+                  onChangeText={setDateFilter}
+                  placeholder="YYYY-MM-DD"
+                  colors={colors}
+                />
+              </View>
+              <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
+                <Text style={{ fontFamily: "DMSans_400Regular", fontSize: 11, color: colors.textMuted }}>
+                  {memories.length} result{memories.length === 1 ? "" : "s"}
+                </Text>
+                {hasActiveFilters ? (
                   <Pressable
-                    key={item.id}
-                    onPress={() => router.push(`/memory/${item.id}`)}
+                    onPress={() => {
+                      setQuery("");
+                      setMonthFilter("");
+                      setYearFilter("");
+                      setDateFilter("");
+                    }}
                     style={{
-                      width: 200,
                       borderWidth: 1,
-                      borderColor: "rgba(212,168,67,0.25)",
-                      backgroundColor: "rgba(212,168,67,0.08)",
-                      paddingHorizontal: 14,
-                      paddingVertical: 12,
-                      borderRadius: 12
+                      borderColor: colors.border,
+                      backgroundColor: colors.surfaceSecondary,
+                      paddingHorizontal: 12,
+                      paddingVertical: BUTTON_PADDING_Y
                     }}
                   >
-                    <Text
-                      numberOfLines={1}
-                      className="font-bodybold text-sm text-cream"
-                    >
-                      {item.title}
-                    </Text>
-                    <Text className="mt-1 font-body text-xs text-moonDim">
-                      {new Date(item.capturedAt).toLocaleDateString(
-                        undefined,
-                        {
-                          month: "short",
-                          day: "numeric",
-                          year: "numeric"
-                        }
-                      )}
+                    <Text style={{ fontFamily: "DMSans_400Regular", fontSize: 11, color: colors.text }}>
+                      Clear filters
                     </Text>
                   </Pressable>
+                ) : null}
+              </View>
+            </MotiView>
+          ) : null}
+        </View>
+
+        {latestMemory ? (
+          <View>
+            <Text style={{ fontFamily: "DMSans_400Regular", fontSize: 10, color: colors.brand, textTransform: "uppercase", letterSpacing: 2.4, marginBottom: 8 }}>
+              {hasActiveFilters ? "Latest filtered memory" : "Latest moment"}
+            </Text>
+            <MemoryTile item={latestMemory} big index={0} colors={colors} gradients={gradients} />
+          </View>
+        ) : null}
+
+        {incompleteMilestones.length > 0 ? (
+          <View
+            style={{
+              borderWidth: 1,
+              borderColor: colors.border,
+              backgroundColor: colors.surface,
+              paddingHorizontal: 16,
+              paddingVertical: 16
+            }}
+          >
+            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+              <Text style={{ fontFamily: "DMSans_500Medium", fontSize: 14, color: colors.text }}>
+                Milestones in progress
+              </Text>
+              <Pressable onPress={() => router.push(`/milestones/${activeChild.id}`)}>
+                <Text style={{ fontFamily: "DMSans_400Regular", fontSize: 12, color: colors.brand }}>
+                  View all
+                </Text>
+              </Pressable>
+            </View>
+            <View style={{ marginTop: 12, gap: 8 }}>
+              {incompleteMilestones.map((milestone) => (
+                <Pressable
+                  key={milestone.id}
+                  onPress={() => router.push(`/milestones/${activeChild.id}`)}
+                  style={{
+                    borderWidth: 1,
+                    borderColor: colors.border,
+                    backgroundColor: colors.surfaceSecondary,
+                    paddingHorizontal: 12,
+                    paddingVertical: 12,
+                    flexDirection: "row",
+                    alignItems: "center",
+                    gap: 10
+                  }}
+                >
+                  <MaterialCommunityIcons name="flag-checkered" size={16} color={colors.gold} />
+                  <Text style={{ flex: 1, fontFamily: "DMSans_400Regular", fontSize: 13, color: colors.text }}>
+                    {milestone.label}
+                  </Text>
+                  <MaterialCommunityIcons name="chevron-right" size={16} color={colors.textMuted} />
+                </Pressable>
+              ))}
+            </View>
+          </View>
+        ) : null}
+
+        {onThisDayQuery.data?.length ? (
+          <View
+            style={{
+              borderWidth: 1,
+              borderColor: colors.gold,
+              backgroundColor: colors.goldBackground,
+              paddingVertical: 16
+            }}
+          >
+            <Text
+              style={{
+                fontFamily: "DMSans_500Medium",
+                fontSize: 11,
+                color: colors.gold,
+                textTransform: "uppercase",
+                letterSpacing: 2,
+                paddingHorizontal: 16,
+                marginBottom: 12
+              }}
+            >
+              On this day
+            </Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16, gap: 10 }}>
+              {onThisDayQuery.data.map((item) => (
+                <Pressable
+                  key={item.id}
+                  onPress={() => router.push(`/memory/${item.id}`)}
+                  style={{
+                    width: 208,
+                    borderWidth: 1,
+                    borderColor: `${colors.gold}55`,
+                    backgroundColor: "rgba(255,255,255,0.34)",
+                    paddingHorizontal: 14,
+                    paddingVertical: 12
+                  }}
+                >
+                  <Text numberOfLines={1} style={{ fontFamily: "DMSans_500Medium", fontSize: 13, color: colors.text }}>
+                    {item.title}
+                  </Text>
+                  <Text style={{ fontFamily: "DMSans_400Regular", fontSize: 11, color: colors.textMuted, marginTop: 4 }}>
+                    {new Date(item.capturedAt).toLocaleDateString(undefined, {
+                      month: "short",
+                      day: "numeric",
+                      year: "numeric"
+                    })}
+                  </Text>
+                </Pressable>
+              ))}
+            </ScrollView>
+          </View>
+        ) : null}
+
+        {monthGroups.length === 0 ? (
+          <EmptyState
+            title={hasActiveFilters ? "No memories match this filter" : "No memories yet"}
+            body={
+              hasActiveFilters
+                ? "Try a different title, month, year, or exact date."
+                : "Open Capture and save your first moment."
+            }
+            colors={colors}
+          />
+        ) : null}
+
+        {monthGroups.length > 0 ? (
+          <View style={{ gap: 14 }}>
+            <View>
+              <Text style={{ fontFamily: "DMSans_400Regular", fontSize: 10, color: colors.brand, textTransform: "uppercase", letterSpacing: 2.4, marginBottom: 10 }}>
+                Months
+              </Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 12 }}>
+                {monthGroups.map((group) => (
+                  <MonthRailCard
+                    key={group.key}
+                    month={group}
+                    selected={selectedMonth?.key === group.key}
+                    onPress={() => {
+                      setSelectedMonthKey(group.key);
+                      setExpandedMonthKey(null);
+                    }}
+                    colors={colors}
+                    gradients={gradients}
+                  />
                 ))}
               </ScrollView>
             </View>
-          ) : null}
 
-          {/* Empty state */}
-          {sections.length === 0 ? (
-            <View className="mt-6">
-              <EmptyState
-                title="No memories yet"
-                body="Open Capture and save your first moment."
-              />
-            </View>
-          ) : null}
+            {selectedMonth ? (
+              <View
+                style={{
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                  backgroundColor: colors.surface,
+                  padding: 16,
+                  gap: 14
+                }}
+              >
+                <View style={{ flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontFamily: "InstrumentSerif_400Regular", fontSize: 28, color: colors.text }}>
+                      {selectedMonth.label}
+                    </Text>
+                    <Text style={{ fontFamily: "DMSans_400Regular", fontSize: 11, color: colors.textMuted, marginTop: 3 }}>
+                      {selectedMonth.count} {selectedMonth.count === 1 ? "memory" : "memories"} saved
+                    </Text>
+                  </View>
+                  {selectedMonth.count > MONTH_PREVIEW_LIMIT ? (
+                    <Pressable
+                      onPress={() =>
+                        setExpandedMonthKey((current) =>
+                          current === selectedMonth.key ? null : selectedMonth.key
+                        )
+                      }
+                      style={{
+                        borderWidth: 1,
+                        borderColor: colors.border,
+                        backgroundColor: colors.surfaceSecondary,
+                        paddingHorizontal: 12,
+                        paddingVertical: BUTTON_PADDING_Y
+                      }}
+                    >
+                      <Text style={{ fontFamily: "DMSans_500Medium", fontSize: 11, color: colors.text }}>
+                        {showingAllForSelectedMonth ? "Show fewer" : "View all memories"}
+                      </Text>
+                    </Pressable>
+                  ) : null}
+                </View>
 
-          {/* Timeline sections */}
-          <View className="mt-6 gap-4">
-            {sections.map(([label, items], sectionIndex) => (
-              <View key={label}>
-                <Text
-                  style={{
-                    fontFamily: "DMSans_400Regular",
-                    fontSize: 10,
-                    color: T.terracotta,
-                    textTransform: "uppercase",
-                    letterSpacing: 2.6,
-                    marginBottom: 8,
-                    paddingHorizontal: 4
-                  }}
-                >
-                  {label}
-                </Text>
-
-                {items[0] ? (
-                  <MemoryTile
-                    memory={items[0]}
-                    big
-                    index={sectionIndex + 1}
-                  />
+                {previewItems[0] ? (
+                  <MemoryTile item={previewItems[0]} big index={0} colors={colors} gradients={gradients} />
                 ) : null}
 
-                {items.length > 1 ? (
-                  <View className="mt-2 flex-row gap-2">
-                    {items.slice(1, 4).map((memory, idx) => (
+                {previewItems.length > 1 ? (
+                  <View style={{ flexDirection: "row", gap: 10 }}>
+                    {previewItems.slice(1).map((memory, index) => (
                       <MemoryTile
                         key={memory.id}
-                        memory={memory}
-                        index={sectionIndex + idx + 2}
+                        item={memory}
+                        index={index + 1}
+                        colors={colors}
+                        gradients={gradients}
+                      />
+                    ))}
+                  </View>
+                ) : null}
+
+                {showingAllForSelectedMonth && remainingItems.length > 0 ? (
+                  <View style={{ gap: 10 }}>
+                    {remainingItems.map((memory, index) => (
+                      <MemoryTile
+                        key={memory.id}
+                        item={memory}
+                        big={index === 0 && previewItems.length === 0}
+                        index={index + previewItems.length}
+                        colors={colors}
+                        gradients={gradients}
                       />
                     ))}
                   </View>
                 ) : null}
               </View>
-            ))}
+            ) : null}
           </View>
-        </View>
+        ) : null}
       </ScrollView>
     </SafeAreaView>
   );

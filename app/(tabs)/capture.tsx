@@ -24,17 +24,26 @@ import { LinearGradient } from "expo-linear-gradient";
 import { MotiView } from "moti";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { VideoView, useVideoPlayer } from "expo-video";
+import {
+  RecordingPresets,
+  requestRecordingPermissionsAsync,
+  setAudioModeAsync,
+  useAudioPlayer,
+  useAudioRecorder,
+  useAudioRecorderState
+} from "expo-audio";
 import * as Haptics from "expo-haptics";
 import {
   GestureDetector,
   Gesture
 } from "react-native-gesture-handler";
 import { ChildSwitcher } from "@/components/child-switcher";
+import { useAppTheme } from "@/hooks/use-app-theme";
 import { useWorkspace } from "@/hooks/use-workspace";
 import { completeMilestone, createMemory } from "@/lib/repositories";
 import { queryKeys } from "@/lib/query-keys";
+import { darkPalette } from "@/lib/theme";
 import { listMilestones } from "@/lib/workspace";
-import { T } from "@/lib/theme";
 
 const TIMER_OPTIONS = [0, 3, 10] as const;
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
@@ -45,12 +54,18 @@ function ControlPill({
   icon,
   label,
   active,
-  onPress
+  onPress,
+  palette
 }: {
   icon: keyof typeof MaterialCommunityIcons.glyphMap;
   label: string;
   active?: boolean;
   onPress: () => void;
+  palette: {
+    cream: string;
+    moon: string;
+    moonDim: string;
+  };
 }) {
   return (
     <Pressable
@@ -70,13 +85,13 @@ function ControlPill({
       <MaterialCommunityIcons
         name={icon}
         size={16}
-        color={active ? T.cream : T.moon}
+        color={active ? palette.cream : palette.moon}
       />
       <Text
         style={{
           fontFamily: "DMSans_400Regular",
           fontSize: 10,
-          color: active ? T.cream : T.moonDim
+          color: active ? palette.cream : palette.moonDim
         }}
       >
         {label}
@@ -88,6 +103,7 @@ function ControlPill({
 export default function CaptureScreen() {
   const insets = useSafeAreaInsets();
   const queryClient = useQueryClient();
+  const { colors } = useAppTheme();
   const cameraRef = useRef<CameraView | null>(null);
   const {
     workspace,
@@ -127,6 +143,27 @@ export default function CaptureScreen() {
   const [countdownSeconds, setCountdownSeconds] = useState<number | null>(null);
   const [recordingElapsed, setRecordingElapsed] = useState(0);
   const [showShutterFlash, setShowShutterFlash] = useState(false);
+  const [voiceNoteUri, setVoiceNoteUri] = useState<string | null>(null);
+  const [isVoiceNoteRecording, setIsVoiceNoteRecording] = useState(false);
+
+  const T = {
+    cream: darkPalette.text,
+    moon: darkPalette.textSecondary,
+    moonDim: darkPalette.textMuted,
+    terracotta: darkPalette.brand,
+    blush: darkPalette.brandSecondary,
+    sage: darkPalette.sage,
+    gold: darkPalette.gold,
+    night: darkPalette.phoneBackground,
+    night2: darkPalette.backgroundSecondary,
+    night3: darkPalette.surface,
+    night4: darkPalette.border
+  };
+  const S = colors;
+
+  const voiceRecorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
+  const voiceRecorderState = useAudioRecorderState(voiceRecorder);
+  const voicePreviewPlayer = useAudioPlayer(voiceNoteUri ?? null);
 
   // Pinch-to-zoom ref for tracking base zoom level
   const zoomBase = useRef(0);
@@ -159,6 +196,13 @@ export default function CaptureScreen() {
     }, 250);
     return () => clearInterval(interval);
   }, [isRecording]);
+
+  useEffect(() => {
+    void setAudioModeAsync({
+      playsInSilentMode: true,
+      allowsRecording: false
+    }).catch(() => undefined);
+  }, []);
 
   const incompleteMilestones = useMemo(
     () =>
@@ -226,6 +270,7 @@ export default function CaptureScreen() {
   };
 
   const clearDraft = () => {
+    voicePreviewPlayer.pause();
     setAssetUri(null);
     setAssetMimeType(undefined);
     setTitle("");
@@ -236,6 +281,47 @@ export default function CaptureScreen() {
     setCameraBusy(false);
     setCountdownSeconds(null);
     setRecordingElapsed(0);
+    setVoiceNoteUri(null);
+    setIsVoiceNoteRecording(false);
+  };
+
+  const startVoiceNoteRecording = async () => {
+    if (isVoiceNoteRecording) return;
+    const permission = await requestRecordingPermissionsAsync();
+    if (!permission.granted) {
+      Alert.alert("Permission needed", "Microphone access is required for voice notes.");
+      return;
+    }
+    await setAudioModeAsync({
+      playsInSilentMode: true,
+      allowsRecording: true
+    }).catch(() => undefined);
+    await voiceRecorder.prepareToRecordAsync();
+    voiceRecorder.record();
+    setIsVoiceNoteRecording(true);
+  };
+
+  const stopVoiceNoteRecording = async () => {
+    if (!isVoiceNoteRecording) return;
+    await voiceRecorder.stop();
+    const nextUri = voiceRecorder.uri ?? voiceRecorderState.url;
+    if (nextUri) {
+      setVoiceNoteUri(nextUri);
+    }
+    setIsVoiceNoteRecording(false);
+    await setAudioModeAsync({
+      playsInSilentMode: true,
+      allowsRecording: false
+    }).catch(() => undefined);
+  };
+
+  const toggleVoicePreview = () => {
+    if (!voiceNoteUri) return;
+    if (voicePreviewPlayer.playing) {
+      voicePreviewPlayer.pause();
+      return;
+    }
+    voicePreviewPlayer.play();
   };
 
   const pickFromLibrary = async () => {
@@ -389,6 +475,7 @@ export default function CaptureScreen() {
         mediaType: assetType,
         mediaUri: assetUri,
         mediaMimeType: assetMimeType,
+        voiceNoteUri: voiceNoteUri ?? undefined,
         tags,
         capturedAt: new Date().toISOString()
       });
@@ -814,12 +901,14 @@ export default function CaptureScreen() {
                             : "Auto"
                       }
                       active={flashMode !== "off"}
+                      palette={T}
                       onPress={cycleFlashMode}
                     />
                     <ControlPill
                       icon={torchEnabled ? "flashlight" : "flashlight-off"}
                       label={torchEnabled ? "On" : "Off"}
                       active={torchEnabled}
+                      palette={T}
                       onPress={() =>
                         setTorchEnabled((current) => !current)
                       }
@@ -831,6 +920,7 @@ export default function CaptureScreen() {
                   childProfiles={workspace.children}
                   activeChildId={activeChild.id}
                   onSelect={setActiveChildId}
+                  colors={darkPalette}
                 />
 
                 {/* Camera status + mode switcher */}
@@ -939,6 +1029,7 @@ export default function CaptureScreen() {
                     <ControlPill
                       icon="minus"
                       label="Zoom"
+                      palette={T}
                       onPress={() => adjustZoom(-0.1)}
                     />
                     <View
@@ -964,6 +1055,7 @@ export default function CaptureScreen() {
                     <ControlPill
                       icon="plus"
                       label="Zoom"
+                      palette={T}
                       onPress={() => adjustZoom(0.1)}
                     />
                   </View>
@@ -974,6 +1066,7 @@ export default function CaptureScreen() {
                       timerSeconds === 0 ? "Off" : `${timerSeconds}s`
                     }
                     active={timerSeconds !== 0}
+                    palette={T}
                     onPress={cycleTimer}
                   />
                 </View>
@@ -1244,11 +1337,9 @@ export default function CaptureScreen() {
           <View
             style={{
               maxHeight: "48%",
-              borderTopLeftRadius: 28,
-              borderTopRightRadius: 28,
               borderWidth: 1,
-              borderColor: T.night4,
-              backgroundColor: T.night2,
+              borderColor: S.border,
+              backgroundColor: S.surface,
               paddingHorizontal: 16,
               paddingTop: 16
             }}
@@ -1263,8 +1354,7 @@ export default function CaptureScreen() {
                 style={{
                   height: 5,
                   width: 48,
-                  backgroundColor: T.night4,
-                  borderRadius: 3,
+                  backgroundColor: S.border,
                   alignSelf: "center",
                   marginBottom: 12
                 }}
@@ -1282,7 +1372,7 @@ export default function CaptureScreen() {
                     style={{
                       fontFamily: "InstrumentSerif_400Regular",
                       fontSize: 26,
-                      color: T.cream
+                      color: S.text
                     }}
                   >
                     Finish memory
@@ -1291,7 +1381,7 @@ export default function CaptureScreen() {
                     style={{
                       fontFamily: "DMSans_400Regular",
                       fontSize: 11,
-                      color: T.moonDim,
+                      color: S.textMuted,
                       marginTop: 4
                     }}
                   >
@@ -1302,17 +1392,16 @@ export default function CaptureScreen() {
                   onPress={clearDraft}
                   style={{
                     borderWidth: 1,
-                    borderColor: T.night4,
+                    borderColor: S.border,
                     paddingHorizontal: 12,
-                    paddingVertical: 8,
-                    borderRadius: 10
+                    paddingVertical: 11
                   }}
                 >
                   <Text
                     style={{
                       fontFamily: "DMSans_400Regular",
                       fontSize: 11,
-                      color: T.moon
+                      color: S.text
                     }}
                   >
                     Remove
@@ -1324,7 +1413,7 @@ export default function CaptureScreen() {
                 style={{
                   fontFamily: "DMSans_400Regular",
                   fontSize: 10,
-                  color: T.moonDim,
+                  color: S.textMuted,
                   textTransform: "uppercase",
                   letterSpacing: 1.2,
                   marginTop: 16,
@@ -1337,17 +1426,16 @@ export default function CaptureScreen() {
                 value={title}
                 onChangeText={setTitle}
                 placeholder="Title this memory"
-                placeholderTextColor={T.moonDim}
+                placeholderTextColor={S.textMuted}
                 style={{
                   borderWidth: 1,
-                  borderColor: T.night4,
-                  backgroundColor: "rgba(46,38,32,0.35)",
+                  borderColor: S.border,
+                  backgroundColor: S.surfaceSecondary,
                   paddingHorizontal: 16,
-                  paddingVertical: 12,
+                  paddingVertical: 11,
                   fontFamily: "DMSans_400Regular",
                   fontSize: 14,
-                  color: T.cream,
-                  borderRadius: 12
+                  color: S.text
                 }}
               />
 
@@ -1355,7 +1443,7 @@ export default function CaptureScreen() {
                 style={{
                   fontFamily: "DMSans_400Regular",
                   fontSize: 10,
-                  color: T.moonDim,
+                  color: S.textMuted,
                   textTransform: "uppercase",
                   letterSpacing: 1.2,
                   marginTop: 12,
@@ -1368,20 +1456,19 @@ export default function CaptureScreen() {
                 value={note}
                 onChangeText={setNote}
                 placeholder="What happened? Why does this moment matter?"
-                placeholderTextColor={T.moonDim}
+                placeholderTextColor={S.textMuted}
                 multiline
                 textAlignVertical="top"
                 style={{
                   minHeight: 80,
                   borderWidth: 1,
-                  borderColor: T.night4,
-                  backgroundColor: "rgba(46,38,32,0.35)",
+                  borderColor: S.border,
+                  backgroundColor: S.surfaceSecondary,
                   paddingHorizontal: 16,
-                  paddingVertical: 12,
+                  paddingVertical: 11,
                   fontFamily: "DMSans_400Regular",
                   fontSize: 14,
-                  color: T.cream,
-                  borderRadius: 12
+                  color: S.text
                 }}
               />
 
@@ -1389,7 +1476,7 @@ export default function CaptureScreen() {
                 style={{
                   fontFamily: "DMSans_400Regular",
                   fontSize: 10,
-                  color: T.moonDim,
+                  color: S.textMuted,
                   textTransform: "uppercase",
                   letterSpacing: 1.2,
                   marginTop: 12,
@@ -1402,30 +1489,189 @@ export default function CaptureScreen() {
                 value={tagsInput}
                 onChangeText={setTagsInput}
                 placeholder="park, spring, first laugh"
-                placeholderTextColor={T.moonDim}
+                placeholderTextColor={S.textMuted}
                 style={{
                   borderWidth: 1,
-                  borderColor: T.night4,
-                  backgroundColor: "rgba(46,38,32,0.35)",
+                  borderColor: S.border,
+                  backgroundColor: S.surfaceSecondary,
                   paddingHorizontal: 16,
-                  paddingVertical: 12,
+                  paddingVertical: 11,
                   fontFamily: "DMSans_400Regular",
                   fontSize: 14,
-                  color: T.cream,
-                  borderRadius: 12
+                  color: S.text
                 }}
               />
+
+              <Text
+                style={{
+                  fontFamily: "DMSans_400Regular",
+                  fontSize: 10,
+                  color: S.textMuted,
+                  textTransform: "uppercase",
+                  letterSpacing: 1.2,
+                  marginTop: 12,
+                  marginBottom: 6
+                }}
+              >
+                Voice note
+              </Text>
+              <View
+                style={{
+                  borderWidth: 1,
+                  borderColor: S.border,
+                  backgroundColor: S.surfaceSecondary,
+                  padding: 12,
+                  gap: 10
+                }}
+              >
+                <View
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: 10
+                  }}
+                >
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 10, flex: 1 }}>
+                    <View
+                      style={{
+                        width: 36,
+                        height: 36,
+                        alignItems: "center",
+                        justifyContent: "center",
+                        backgroundColor: isVoiceNoteRecording
+                          ? S.dangerBackground
+                          : S.brandBackground
+                      }}
+                    >
+                      <MaterialCommunityIcons
+                        name={isVoiceNoteRecording ? "microphone" : "microphone-outline"}
+                        size={18}
+                        color={isVoiceNoteRecording ? S.danger : S.brand}
+                      />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text
+                        style={{
+                          fontFamily: "DMSans_500Medium",
+                          fontSize: 13,
+                          color: S.text
+                        }}
+                      >
+                        {isVoiceNoteRecording
+                          ? "Recording voice note..."
+                          : voiceNoteUri
+                            ? "Voice note attached"
+                            : "Add a voice note"}
+                      </Text>
+                      <Text
+                        style={{
+                          fontFamily: "DMSans_400Regular",
+                          fontSize: 11,
+                          color: S.textMuted,
+                          marginTop: 2
+                        }}
+                      >
+                        {isVoiceNoteRecording
+                          ? `${Math.max(1, Math.round(voiceRecorderState.durationMillis / 1000))}s`
+                          : voiceNoteUri
+                            ? "Play it back or replace it before saving."
+                            : "Capture a quick spoken memory with this moment."}
+                      </Text>
+                    </View>
+                  </View>
+                  <Pressable
+                    onPress={() => {
+                      void (isVoiceNoteRecording
+                        ? stopVoiceNoteRecording()
+                        : startVoiceNoteRecording());
+                    }}
+                    style={{
+                      backgroundColor: isVoiceNoteRecording
+                        ? S.danger
+                        : S.brand,
+                      paddingHorizontal: 12,
+                      paddingVertical: 10
+                    }}
+                  >
+                    <Text
+                      style={{
+                        fontFamily: "DMSans_500Medium",
+                        fontSize: 11,
+                        color: "#FFFFFF"
+                      }}
+                    >
+                      {isVoiceNoteRecording
+                        ? "Stop"
+                        : voiceNoteUri
+                          ? "Replace"
+                          : "Record"}
+                    </Text>
+                  </Pressable>
+                </View>
+
+                {voiceNoteUri ? (
+                  <View style={{ flexDirection: "row", gap: 8 }}>
+                    <Pressable
+                      onPress={toggleVoicePreview}
+                      style={{
+                        flex: 1,
+                        borderWidth: 1,
+                        borderColor: S.border,
+                        paddingVertical: 11,
+                        backgroundColor: S.surface
+                      }}
+                    >
+                      <Text
+                        style={{
+                          textAlign: "center",
+                          fontFamily: "DMSans_400Regular",
+                          fontSize: 12,
+                          color: S.text
+                        }}
+                      >
+                        {voicePreviewPlayer.playing
+                          ? "Pause playback"
+                          : "Play voice note"}
+                      </Text>
+                    </Pressable>
+                    <Pressable
+                      onPress={() => {
+                        voicePreviewPlayer.pause();
+                        setVoiceNoteUri(null);
+                      }}
+                      style={{
+                        borderWidth: 1,
+                        borderColor: S.border,
+                        paddingHorizontal: 14,
+                        justifyContent: "center",
+                        backgroundColor: S.surface
+                      }}
+                    >
+                      <Text
+                        style={{
+                          fontFamily: "DMSans_400Regular",
+                          fontSize: 12,
+                          color: S.text
+                        }}
+                      >
+                        Remove
+                      </Text>
+                    </Pressable>
+                  </View>
+                ) : null}
+              </View>
 
               {incompleteMilestones.length > 0 ? (
                 <View style={{ marginTop: 12, gap: 8 }}>
                   <Text
-                    style={{
-                      fontFamily: "DMSans_400Regular",
-                      fontSize: 10,
-                      color: T.moonDim,
-                      textTransform: "uppercase",
-                      letterSpacing: 1.2
-                    }}
+                      style={{
+                        fontFamily: "DMSans_400Regular",
+                        fontSize: 10,
+                        color: S.textMuted,
+                        textTransform: "uppercase",
+                        letterSpacing: 1.2
+                      }}
                   >
                     Link milestone
                   </Text>
@@ -1450,20 +1696,19 @@ export default function CaptureScreen() {
                             borderWidth: 1,
                             borderColor: active
                               ? "rgba(196,98,58,0.45)"
-                              : T.night4,
+                              : S.border,
                             backgroundColor: active
                               ? "rgba(196,98,58,0.20)"
-                              : "rgba(46,38,32,0.35)",
+                              : S.surfaceSecondary,
                             paddingHorizontal: 12,
-                            paddingVertical: 8,
-                            borderRadius: 10
+                            paddingVertical: 8
                           }}
                         >
                           <Text
                             style={{
                               fontFamily: "DMSans_400Regular",
                               fontSize: 11,
-                              color: active ? T.blush : T.moon
+                              color: active ? S.brandSecondary : S.text
                             }}
                           >
                             {milestone.label}
@@ -1487,10 +1732,9 @@ export default function CaptureScreen() {
                   style={{
                     flex: 1,
                     borderWidth: 1,
-                    borderColor: T.night4,
+                    borderColor: S.border,
                     paddingHorizontal: 16,
-                    paddingVertical: 14,
-                    borderRadius: 14
+                    paddingVertical: 11
                   }}
                 >
                   <Text
@@ -1498,7 +1742,7 @@ export default function CaptureScreen() {
                       fontFamily: "DMSans_400Regular",
                       textAlign: "center",
                       fontSize: 14,
-                      color: T.moon
+                      color: S.text
                     }}
                   >
                     Discard
@@ -1509,10 +1753,9 @@ export default function CaptureScreen() {
                   disabled={saveMutation.isPending}
                   style={{
                     flex: 1,
-                    backgroundColor: T.terracotta,
+                    backgroundColor: S.brand,
                     paddingHorizontal: 16,
-                    paddingVertical: 14,
-                    borderRadius: 14
+                    paddingVertical: 11
                   }}
                 >
                   <Text
@@ -1520,7 +1763,7 @@ export default function CaptureScreen() {
                       fontFamily: "DMSans_500Medium",
                       textAlign: "center",
                       fontSize: 14,
-                      color: T.cream
+                      color: "#FFFFFF"
                     }}
                   >
                     {saveMutation.isPending ? "Saving..." : "Save memory"}

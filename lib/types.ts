@@ -1,5 +1,56 @@
 export type Role = "owner" | "editor" | "viewer";
 
+export type AvatarSkinToneId = "s1" | "s2" | "s3" | "s4" | "s5" | "s6";
+export type AvatarHairColorId =
+  | "h1"
+  | "h2"
+  | "h3"
+  | "h4"
+  | "h5"
+  | "h6"
+  | "h7"
+  | "h8";
+export type AvatarHairStyleId =
+  | "short"
+  | "medium"
+  | "long"
+  | "curly"
+  | "bun"
+  | "buzz";
+export type AvatarBackgroundId =
+  | "tc"
+  | "sage"
+  | "gold"
+  | "blue"
+  | "plum"
+  | "night";
+
+export type AvatarConfig = {
+  skinToneId: AvatarSkinToneId;
+  hairColorId: AvatarHairColorId;
+  hairStyleId: AvatarHairStyleId;
+  backgroundId: AvatarBackgroundId;
+};
+
+export type ThemePreference = "dark" | "light";
+
+export type PersonalizationPreferences = {
+  childStage: "newborn" | "baby" | "toddler" | "child";
+  priorities: Array<"daily" | "milestones" | "legacy" | "collab">;
+  reminderWindow: "morning" | "noon" | "golden" | "night";
+  themePreference: ThemePreference;
+};
+
+export type UserProfile = {
+  id: string;
+  fullName: string;
+  email: string;
+  avatarUrl: string | null;
+  avatarConfig: AvatarConfig | null;
+  personalization: PersonalizationPreferences | null;
+  personalizationCompletedAt: string | null;
+};
+
 export type Family = {
   id: string;
   name: string;
@@ -23,6 +74,8 @@ export type FamilyMember = {
   fullName: string;
   email: string;
   role: Role;
+  avatarUrl: string | null;
+  avatarConfig: AvatarConfig | null;
 };
 
 export type MemoryItem = {
@@ -97,4 +150,15 @@ export type ExportJob = {
   createdAt: string;
   resultUrl: string | null;
   errorMessage: string | null;
+};
+
+export type FamilyActivityItem = {
+  id: string;
+  actorId: string;
+  actorName: string;
+  actorAvatarUrl: string | null;
+  actorAvatarConfig: AvatarConfig | null;
+  action: string;
+  createdAt: string;
+  timeLabel: string;
 };

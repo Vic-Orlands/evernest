@@ -1,14 +1,16 @@
 import { useEffect, useMemo, useState } from "react";
 import { router, useLocalSearchParams } from "expo-router";
-import { ActivityIndicator, Pressable, Text } from "react-native";
+import { ActivityIndicator, Pressable, Text, View } from "react-native";
 import { MotiView } from "moti";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { acceptFamilyInvite } from "@/lib/collaboration";
+import { useAppTheme } from "@/hooks/use-app-theme";
 
 export default function AcceptInviteScreen() {
+  const { colors } = useAppTheme();
   const { token } = useLocalSearchParams<{ token?: string }>();
   const [state, setState] = useState<"loading" | "success" | "error">("loading");
-  const [errorMessage, setErrorMessage] = useState<string>("");
+  const [errorMessage, setErrorMessage] = useState("");
 
   const safeToken = useMemo(() => (typeof token === "string" ? token : ""), [token]);
 
@@ -33,38 +35,44 @@ export default function AcceptInviteScreen() {
   }, [safeToken]);
 
   return (
-    <SafeAreaView edges={["top", "bottom"]} className="flex-1 items-center justify-center bg-night2 px-6">
-      {state === "loading" ? <ActivityIndicator color="#C4623A" /> : null}
+    <SafeAreaView edges={["top", "bottom"]} style={{ flex: 1, backgroundColor: colors.backgroundSecondary }}>
+      <View style={{ flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 24 }}>
+        {state === "loading" ? <ActivityIndicator color={colors.brand} /> : null}
 
-      {state === "success" ? (
-        <MotiView
-          from={{ opacity: 0, translateY: 12 }}
-          animate={{ opacity: 1, translateY: 0 }}
-          transition={{ duration: 260 }}
-          className="items-center"
-        >
-          <Text className="font-display text-4xl text-cream">Invite Accepted</Text>
-          <Text className="mt-2 text-center font-body text-moonDim">You are now part of this EverNest family timeline.</Text>
-          <Pressable onPress={() => router.replace("/(tabs)")} className="mt-6 rounded-2xl bg-terracotta px-5 py-3">
-            <Text className="font-bodybold text-cream">Open Timeline</Text>
-          </Pressable>
-        </MotiView>
-      ) : null}
+        {state === "success" ? (
+          <MotiView from={{ opacity: 0, translateY: 12 }} animate={{ opacity: 1, translateY: 0 }} transition={{ duration: 260 }} style={{ alignItems: "center" }}>
+            <Text style={{ fontFamily: "InstrumentSerif_400Regular", fontSize: 40, color: colors.text }}>
+              Invite Accepted
+            </Text>
+            <Text style={{ marginTop: 10, textAlign: "center", fontFamily: "DMSans_400Regular", fontSize: 14, lineHeight: 22, color: colors.textMuted }}>
+              You are now part of this EverNest family timeline.
+            </Text>
+            <Pressable
+              onPress={() => router.replace("/")}
+              style={{ marginTop: 20, borderRadius: 16, backgroundColor: colors.brand, paddingHorizontal: 18, paddingVertical: 14 }}
+            >
+              <Text style={{ fontFamily: "DMSans_500Medium", color: "#FFFFFF" }}>Open Timeline</Text>
+            </Pressable>
+          </MotiView>
+        ) : null}
 
-      {state === "error" ? (
-        <MotiView
-          from={{ opacity: 0, translateY: 12 }}
-          animate={{ opacity: 1, translateY: 0 }}
-          transition={{ duration: 260 }}
-          className="items-center"
-        >
-          <Text className="font-display text-4xl text-cream">Invite Error</Text>
-          <Text className="mt-2 text-center font-body text-moonDim">{errorMessage}</Text>
-          <Pressable onPress={() => router.replace("/(tabs)")} className="mt-6 rounded-2xl border border-night4 px-5 py-3">
-            <Text className="font-body text-moon">Go back</Text>
-          </Pressable>
-        </MotiView>
-      ) : null}
+        {state === "error" ? (
+          <MotiView from={{ opacity: 0, translateY: 12 }} animate={{ opacity: 1, translateY: 0 }} transition={{ duration: 260 }} style={{ alignItems: "center" }}>
+            <Text style={{ fontFamily: "InstrumentSerif_400Regular", fontSize: 40, color: colors.text }}>
+              Invite Error
+            </Text>
+            <Text style={{ marginTop: 10, textAlign: "center", fontFamily: "DMSans_400Regular", fontSize: 14, lineHeight: 22, color: colors.textMuted }}>
+              {errorMessage}
+            </Text>
+            <Pressable
+              onPress={() => router.replace("/")}
+              style={{ marginTop: 20, borderRadius: 16, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, paddingHorizontal: 18, paddingVertical: 14 }}
+            >
+              <Text style={{ fontFamily: "DMSans_400Regular", color: colors.text }}>Go back</Text>
+            </Pressable>
+          </MotiView>
+        ) : null}
+      </View>
     </SafeAreaView>
   );
 }

@@ -1,10 +1,10 @@
 import { useEffect, useState } from "react";
-import { ActivityIndicator, Pressable, Text } from "react-native";
+import { ActivityIndicator, Pressable, Text, View } from "react-native";
 import * as Linking from "expo-linking";
 import { router, useLocalSearchParams } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { supabase } from "@/lib/supabase";
-import { T } from "@/lib/theme";
+import { useAppTheme } from "@/hooks/use-app-theme";
 
 type AuthState = "processing" | "success" | "error";
 
@@ -26,14 +26,12 @@ function parseParamsFromUrl(url: string | null): Record<string, string> {
 
   const queryIndex = url.indexOf("?");
   if (queryIndex >= 0) {
-    const query = url.slice(queryIndex + 1).split("#")[0];
-    fill(query);
+    fill(url.slice(queryIndex + 1).split("#")[0]);
   }
 
   const hashIndex = url.indexOf("#");
   if (hashIndex >= 0) {
-    const hash = url.slice(hashIndex + 1);
-    fill(hash);
+    fill(url.slice(hashIndex + 1));
   }
 
   return out;
@@ -48,6 +46,7 @@ function safeDecode(value: string): string {
 }
 
 export default function AuthCallbackScreen() {
+  const { colors } = useAppTheme();
   const params = useLocalSearchParams<Record<string, string | string[]>>();
   const incomingUrl = Linking.useURL();
   const [state, setState] = useState<AuthState>("processing");
@@ -81,22 +80,19 @@ export default function AuthCallbackScreen() {
             access_token: accessToken,
             refresh_token: refreshToken
           });
-
           if (error) throw error;
-
           setState("success");
-          setMessage("Signed in. Redirecting to your timeline...");
-          router.replace("/(tabs)");
+          setMessage("Signed in. Redirecting...");
+          router.replace("/");
           return;
         }
 
         if (code) {
           const { error } = await supabase.auth.exchangeCodeForSession(code);
           if (error) throw error;
-
           setState("success");
-          setMessage("Signed in. Redirecting to your timeline...");
-          router.replace("/(tabs)");
+          setMessage("Signed in. Redirecting...");
+          router.replace("/");
           return;
         }
 
@@ -105,9 +101,7 @@ export default function AuthCallbackScreen() {
             token_hash: tokenHash,
             type: type as "email" | "recovery" | "invite" | "email_change" | "magiclink" | "signup"
           });
-
           if (error) throw error;
-
           setState("success");
           setMessage("Email confirmed. Please sign in.");
           router.replace("/(auth)/sign-in");
@@ -124,7 +118,7 @@ export default function AuthCallbackScreen() {
         const { data } = await supabase.auth.getSession();
         if (data.session?.user) {
           setState("success");
-          router.replace("/(tabs)");
+          router.replace("/");
           return;
         }
 
@@ -140,15 +134,34 @@ export default function AuthCallbackScreen() {
   }, [params, incomingUrl]);
 
   return (
-    <SafeAreaView edges={["top", "bottom"]} className="flex-1 items-center justify-center bg-night2 px-6">
-      {state === "processing" ? <ActivityIndicator color={T.terracotta} /> : null}
-      <Text className="mt-4 text-center font-display text-4xl text-cream">EverNest</Text>
-      <Text className="mt-2 text-center font-body text-moonDim">{message}</Text>
-      {state === "error" ? (
-        <Pressable onPress={() => router.replace("/(auth)/sign-in")} className="mt-6 rounded-xl border border-night4 px-4 py-3">
-          <Text className="font-body text-moon">Return to sign in</Text>
-        </Pressable>
-      ) : null}
+    <SafeAreaView edges={["top", "bottom"]} style={{ flex: 1, backgroundColor: colors.backgroundSecondary }}>
+      <View style={{ flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 24 }}>
+        {state === "processing" ? <ActivityIndicator color={colors.brand} /> : null}
+        <Text style={{ marginTop: 16, textAlign: "center", fontFamily: "InstrumentSerif_400Regular", fontSize: 40, color: colors.text }}>
+          EverNest
+        </Text>
+        <Text style={{ marginTop: 10, textAlign: "center", fontFamily: "DMSans_400Regular", fontSize: 14, lineHeight: 22, color: colors.textMuted }}>
+          {message}
+        </Text>
+        {state === "error" ? (
+          <Pressable
+            onPress={() => router.replace("/(auth)/sign-in")}
+            style={{
+              marginTop: 20,
+              borderRadius: 14,
+              borderWidth: 1,
+              borderColor: colors.border,
+              backgroundColor: colors.surface,
+              paddingHorizontal: 16,
+              paddingVertical: 12
+            }}
+          >
+            <Text style={{ fontFamily: "DMSans_400Regular", fontSize: 13, color: colors.text }}>
+              Return to sign in
+            </Text>
+          </Pressable>
+        ) : null}
+      </View>
     </SafeAreaView>
   );
 }

@@ -1,7 +1,8 @@
 import { supabase } from "@/lib/supabase";
 import { AuthUser } from "@/lib/auth";
-import { ChildProfile, FamilyMember, Milestone, Role, Workspace } from "@/lib/types";
+import { ChildProfile, FamilyActivityItem, FamilyMember, Milestone, Role, Workspace } from "@/lib/types";
 import { isSupabaseProfilesPolicyError, isSupabaseSchemaMissingError, toSupabaseSetupError } from "@/lib/supabase-setup";
+import { ensureProfileRecord, getProfiles } from "@/lib/profile";
 
 const DEFAULT_MILESTONES = [
   { key: "first_word", label: "First word" },
@@ -36,25 +37,6 @@ function isRecoverableWorkspaceError(error: unknown): boolean {
     message.includes("foreign key") ||
     message.includes("violates row-level security")
   );
-}
-
-async function ensureProfile(user: AuthUser): Promise<void> {
-  const fallbackName = user.name?.trim() || user.email.split("@")[0] || "Parent";
-
-  const { error } = await supabase
-    .from("profiles")
-    .upsert(
-      {
-        id: user.id,
-        full_name: fallbackName,
-        email: user.email
-      },
-      { onConflict: "id" }
-    );
-
-  if (error) {
-    throw toSupabaseSetupError(new Error(`Could not create or update profile: ${error.message}`));
-  }
 }
 
 async function ensureDefaultMilestones(childId: string): Promise<void> {
@@ -250,7 +232,7 @@ async function ensureFamilyContext(user: AuthUser): Promise<{ familyId: string; 
 }
 
 export async function bootstrapWorkspace(user: AuthUser): Promise<Workspace> {
-  await ensureProfile(user);
+  await ensureProfileRecord(user);
 
   let familyContext = await ensureFamilyContext(user);
   let activeChild: ChildProfile;
@@ -318,24 +300,7 @@ export async function listFamilyMembers(familyId: string): Promise<FamilyMember[
   const userIds = Array.from(new Set((memberRows ?? []).map((row) => row.user_id)));
   if (userIds.length === 0) return [];
 
-  const { data: profileRows, error: profileError } = await supabase
-    .from("profiles")
-    .select("id, full_name, email")
-    .in("id", userIds);
-
-  if (profileError) {
-    throw toSupabaseSetupError(new Error(`Could not load member profiles: ${profileError.message}`));
-  }
-
-  const profileMap = new Map(
-    (profileRows ?? []).map((row) => [
-      row.id,
-      {
-        fullName: row.full_name ?? "Guardian",
-        email: row.email ?? ""
-      }
-    ])
-  );
+  const profileMap = await getProfiles(userIds);
 
   return (memberRows ?? []).map((row) => {
     const profile = profileMap.get(row.user_id);
@@ -343,7 +308,90 @@ export async function listFamilyMembers(familyId: string): Promise<FamilyMember[
       id: row.user_id,
       fullName: profile?.fullName ?? "Guardian",
       email: profile?.email ?? "",
-      role: row.role as Role
+      role: row.role as Role,
+      avatarUrl: profile?.avatarUrl ?? null,
+      avatarConfig: profile?.avatarConfig ?? null
+    };
+  });
+}
+
+function formatRelativeTime(input: string): string {
+  const seconds = Math.max(1, Math.floor((Date.now() - new Date(input).getTime()) / 1000));
+  if (seconds < 60) return `${seconds}s ago`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `${days}d ago`;
+  return new Date(input).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
+export async function listRecentFamilyActivity(
+  familyId: string,
+  limit = 6
+): Promise<FamilyActivityItem[]> {
+  const [memoriesResult, commentsResult] = await Promise.all([
+    supabase
+      .from("memories")
+      .select("id, title, media_type, created_at, created_by")
+      .eq("family_id", familyId)
+      .order("created_at", { ascending: false })
+      .limit(limit),
+    supabase
+      .from("memory_comments")
+      .select("id, user_id, body, created_at, memories!inner(family_id, title)")
+      .eq("memories.family_id", familyId)
+      .order("created_at", { ascending: false })
+      .limit(limit)
+  ]);
+
+  if (memoriesResult.error) {
+    throw toSupabaseSetupError(new Error(`Could not load recent memory activity: ${memoriesResult.error.message}`));
+  }
+
+  if (commentsResult.error) {
+    throw toSupabaseSetupError(new Error(`Could not load recent comment activity: ${commentsResult.error.message}`));
+  }
+
+  const baseActivities = [
+    ...(memoriesResult.data ?? []).map((row) => ({
+      id: `memory-${row.id}`,
+      actorId: row.created_by,
+      createdAt: row.created_at,
+      action:
+        row.media_type === "video"
+          ? `added a video${row.title ? `: ${row.title}` : ""}`
+          : row.media_type === "voice"
+            ? `saved a voice note${row.title ? `: ${row.title}` : ""}`
+            : `added a photo${row.title ? `: ${row.title}` : ""}`
+    })),
+    ...(commentsResult.data ?? []).map((row) => {
+      const memory = Array.isArray(row.memories) ? row.memories[0] : row.memories;
+      return {
+        id: `comment-${row.id}`,
+        actorId: row.user_id,
+        createdAt: row.created_at,
+        action: `left a note on ${memory?.title ?? "a memory"}`
+      };
+    })
+  ]
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+    .slice(0, limit);
+
+  const profileMap = await getProfiles(baseActivities.map((item) => item.actorId));
+
+  return baseActivities.map((item) => {
+    const profile = profileMap.get(item.actorId);
+    return {
+      id: item.id,
+      actorId: item.actorId,
+      actorName: profile?.fullName ?? "Someone",
+      actorAvatarUrl: profile?.avatarUrl ?? null,
+      actorAvatarConfig: profile?.avatarConfig ?? null,
+      action: item.action,
+      createdAt: item.createdAt,
+      timeLabel: formatRelativeTime(item.createdAt)
     };
   });
 }

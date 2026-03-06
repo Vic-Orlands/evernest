@@ -1,24 +1,40 @@
 import { Pressable, Text, View } from "react-native";
 import { ChildProfile } from "@/lib/types";
+import { AppTheme } from "@/lib/theme";
 
 type Props = {
   childProfiles: ChildProfile[];
   activeChildId: string;
   onSelect: (childId: string) => void;
+  colors: AppTheme;
 };
 
-export function ChildSwitcher({ childProfiles, activeChildId, onSelect }: Props) {
+export function ChildSwitcher({ childProfiles, activeChildId, onSelect, colors }: Props) {
   return (
-    <View className="mt-4 flex-row flex-wrap gap-2">
+    <View style={{ marginTop: 16, flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
       {childProfiles.map((child) => {
         const active = child.id === activeChildId;
         return (
           <Pressable
             key={child.id}
             onPress={() => onSelect(child.id)}
-            className={`rounded-full border px-4 py-2 ${active ? "border-terracotta bg-terracotta/20" : "border-night4 bg-night3"}`}
+            style={{
+              borderWidth: 1,
+              borderColor: active ? colors.brand : colors.border,
+              backgroundColor: active ? colors.brandBackground : colors.surface,
+              paddingHorizontal: 14,
+              paddingVertical: 8
+            }}
           >
-            <Text className={`font-body text-xs ${active ? "text-blush" : "text-moonDim"}`}>{child.firstName}</Text>
+            <Text
+              style={{
+                fontFamily: "DMSans_400Regular",
+                fontSize: 12,
+                color: active ? colors.brandSecondary : colors.textMuted
+              }}
+            >
+              {child.firstName}
+            </Text>
           </Pressable>
         );
       })}
