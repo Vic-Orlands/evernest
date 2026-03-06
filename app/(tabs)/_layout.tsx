@@ -1,4 +1,4 @@
-import { Text } from "react-native";
+import { Text, View, useWindowDimensions } from "react-native";
 import { Tabs } from "expo-router";
 import { MotiView } from "moti";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
@@ -12,6 +12,43 @@ const TAB_META: Record<string, { icon: keyof typeof MaterialCommunityIcons.glyph
   settings: { icon: "cog-outline", label: "Settings" }
 };
 
+function CurvedTabBarBackground() {
+  const { width } = useWindowDimensions();
+  const radius = 36;
+
+  return (
+    <View style={{ flex: 1, backgroundColor: "transparent" }} pointerEvents="none">
+      <View style={{
+        flex: 1,
+        backgroundColor: T.night2,
+        borderTopWidth: 1,
+        borderColor: "rgba(255,255,255,0.08)"
+      }} />
+
+      <View style={{
+        position: "absolute",
+        top: -radius + 12,
+        left: width / 2 - radius,
+        width: radius * 2,
+        height: radius * 2,
+        borderRadius: radius,
+        backgroundColor: T.night2,
+        borderWidth: 1,
+        borderColor: "rgba(255,255,255,0.08)"
+      }} />
+
+      <View style={{
+        position: "absolute",
+        top: 1,
+        left: width / 2 - radius - 1,
+        width: radius * 2 + 2,
+        height: radius + 10,
+        backgroundColor: T.night2,
+      }} />
+    </View>
+  );
+}
+
 export default function TabsLayout() {
   return (
     <Tabs
@@ -22,13 +59,14 @@ export default function TabsLayout() {
         return {
           headerShown: false,
           tabBarStyle: {
-            backgroundColor: T.night2,
-            borderTopColor: "rgba(255,255,255,0.08)",
-            borderTopWidth: 1,
+            backgroundColor: "transparent",
+            borderTopWidth: 0,
+            elevation: 0,
             height: 78,
             paddingTop: 9,
             paddingBottom: 14
           },
+          tabBarBackground: () => <CurvedTabBarBackground />,
           tabBarLabel: ({ focused }) => (
             <MotiView
               animate={{ opacity: focused ? 1 : 0.76 }}
@@ -60,35 +98,58 @@ export default function TabsLayout() {
               ) : null}
             </MotiView>
           ),
-          tabBarIcon: ({ focused }) => (
-            <MotiView
-              animate={{
-                scale: focused ? (isCapture ? 1.1 : 1.06) : 1,
-                translateY: isCapture ? -8 : focused ? -1 : 0,
-                backgroundColor: focused
-                  ? isCapture
-                    ? T.terracotta
-                    : "rgba(196,98,58,0.2)"
-                  : "rgba(255,255,255,0.04)"
-              }}
-              transition={{ type: "timing", duration: 220 }}
-              style={{
-                width: isCapture ? 50 : 36,
-                height: isCapture ? 50 : 36,
-                borderRadius: 999,
-                alignItems: "center",
-                justifyContent: "center",
-                borderWidth: 1,
-                borderColor: focused
-                  ? isCapture
-                    ? "rgba(245,240,232,0.18)"
-                    : "rgba(196,98,58,0.45)"
-                  : "rgba(255,255,255,0.08)"
-              }}
-            >
-              <MaterialCommunityIcons name={meta.icon} size={isCapture ? 24 : 20} color={focused ? T.cream : T.moonDim} />
-            </MotiView>
-          ),
+          tabBarIcon: ({ focused }) => {
+            if (isCapture) {
+              return (
+                <View style={{ width: 72, height: 72, marginTop: -32, alignItems: "center", justifyContent: "center" }}>
+                  <MotiView
+                    animate={{
+                      scale: focused ? 1.05 : 1,
+                      backgroundColor: focused ? T.terracotta : "rgba(255,255,255,0.04)"
+                    }}
+                    transition={{ type: "timing", duration: 220 }}
+                    style={{
+                      width: 52,
+                      height: 52,
+                      borderRadius: 26,
+                      alignItems: "center",
+                      justifyContent: "center",
+                      borderWidth: 1,
+                      borderColor: focused ? "rgba(245,240,232,0.18)" : "rgba(255,255,255,0.06)",
+                      shadowColor: "#000",
+                      shadowOffset: { width: 0, height: 4 },
+                      shadowOpacity: 0.25,
+                      shadowRadius: 10
+                    }}
+                  >
+                    <MaterialCommunityIcons name={meta.icon} size={24} color={focused ? T.cream : T.moonDim} />
+                  </MotiView>
+                </View>
+              );
+            }
+
+            return (
+              <MotiView
+                animate={{
+                  scale: focused ? 1.06 : 1,
+                  translateY: focused ? -1 : 0,
+                  backgroundColor: focused ? "rgba(196,98,58,0.2)" : "rgba(255,255,255,0.04)"
+                }}
+                transition={{ type: "timing", duration: 220 }}
+                style={{
+                  width: 36,
+                  height: 36,
+                  borderRadius: 18,
+                  alignItems: "center",
+                  justifyContent: "center",
+                  borderWidth: 1,
+                  borderColor: focused ? "rgba(196,98,58,0.45)" : "rgba(255,255,255,0.08)"
+                }}
+              >
+                <MaterialCommunityIcons name={meta.icon} size={20} color={focused ? T.cream : T.moonDim} />
+              </MotiView>
+            );
+          },
           tabBarItemStyle: {
             paddingVertical: 1
           }

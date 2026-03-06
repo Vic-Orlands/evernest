@@ -2,6 +2,8 @@ import { useState } from "react";
 import { Link, router } from "expo-router";
 import {
   Alert,
+  KeyboardAvoidingView,
+  Platform,
   Pressable,
   Text,
   TextInput,
@@ -50,7 +52,10 @@ export default function SignUpScreen() {
   };
 
   return (
-    <View style={{ backgroundColor: "#1A1612" }}>
+    <KeyboardAvoidingView
+      behavior={Platform.OS === "ios" ? "padding" : "height"}
+      style={{ backgroundColor: "#1A1612" }}
+    >
       <View style={{ paddingHorizontal: 24, paddingTop: 24, paddingBottom: Math.max(insets.bottom, 10) + 16, gap: 20 }}>
         <View className="gap-2">
           <Text className="font-display text-[34px] leading-[36px] text-cream">Create account</Text>
@@ -145,6 +150,6 @@ export default function SignUpScreen() {
           </Pressable>
         </Link>
       </View>
-    </View>
+    </KeyboardAvoidingView>
   );
 }
