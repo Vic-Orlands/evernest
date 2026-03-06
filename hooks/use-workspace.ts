@@ -25,14 +25,19 @@ export function useWorkspace() {
     return workspace.children.find((child) => child.id === activeChildId) ?? workspace.activeChild;
   }, [workspace, activeChildId]);
 
+  const refetchWorkspace = async () => {
+    await refreshAuth();
+    return workspaceQuery.refetch();
+  };
+
   return {
     user,
     authLoading,
     refreshAuth,
     workspace,
-    workspaceLoading: workspaceQuery.isLoading,
+    workspaceLoading: authLoading || (Boolean(user) && workspaceQuery.isLoading),
     workspaceError: workspaceQuery.error,
-    refetchWorkspace: workspaceQuery.refetch,
+    refetchWorkspace,
     activeChild,
     setActiveChildId
   };

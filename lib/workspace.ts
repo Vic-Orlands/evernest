@@ -1,7 +1,7 @@
 import { supabase } from "@/lib/supabase";
 import { AuthUser } from "@/lib/auth";
 import { ChildProfile, FamilyMember, Milestone, Role, Workspace } from "@/lib/types";
-import { toSupabaseSetupError } from "@/lib/supabase-setup";
+import { isSupabaseProfilesPolicyError, isSupabaseSchemaMissingError, toSupabaseSetupError } from "@/lib/supabase-setup";
 
 const DEFAULT_MILESTONES = [
   { key: "first_word", label: "First word" },
@@ -15,6 +15,27 @@ function titleCaseName(raw: string | undefined): string {
   if (!raw) return "My Child";
   const cleaned = raw.trim();
   return cleaned.length > 0 ? cleaned : "My Child";
+}
+
+function isRecoverableWorkspaceError(error: unknown): boolean {
+  if (isSupabaseSchemaMissingError(error) || isSupabaseProfilesPolicyError(error)) {
+    return false;
+  }
+
+  if (!(error instanceof Error)) {
+    return false;
+  }
+
+  const message = error.message.toLowerCase();
+  return (
+    message.includes("could not load children") ||
+    message.includes("could not create child profile") ||
+    message.includes("could not load family membership") ||
+    message.includes("could not load family details") ||
+    message.includes("could not load owned family") ||
+    message.includes("foreign key") ||
+    message.includes("violates row-level security")
+  );
 }
 
 async function ensureProfile(user: AuthUser): Promise<void> {
@@ -237,6 +258,10 @@ export async function bootstrapWorkspace(user: AuthUser): Promise<Workspace> {
   try {
     activeChild = await ensureChild(familyContext.familyId);
   } catch (error) {
+    if (!isRecoverableWorkspaceError(error)) {
+      throw error;
+    }
+
     // Self-heal for broken membership/family states by creating a fresh family workspace.
     const created = await createFamilyForUser(user);
     familyContext = {

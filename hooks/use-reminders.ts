@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import * as Device from "expo-device";
 import { secureDelete, secureGet, secureSet } from "@/lib/secure-store";
 import { getExpoNotifications } from "@/lib/expo-notifications-optional";
+import { registerPushToken } from "@/lib/notifications";
 
 const DAILY_KEY = "notifications.daily";
 const CATCHUP_KEY = "notifications.catchup";
@@ -43,6 +44,11 @@ export function useReminders() {
         finalStatus = status;
       }
       setEnabled(finalStatus === "granted");
+
+      // Register push token for remote notifications
+      if (finalStatus === "granted") {
+        void registerPushToken();
+      }
     })();
   }, [notifications]);
 

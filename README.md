@@ -46,11 +46,13 @@ pnpm start
 - `supabase/sql/002_security_and_collab.sql`
 - `supabase/sql/003_exports_storage.sql`
 - `supabase/sql/004_profiles_family_read.sql`
+- `supabase/sql/005_families_owner_read.sql`
 
 2. Deploy edge functions:
 - `create-invite`
 - `accept-invite`
 - `create-checkout-link`
+- `delete-account`
 - `send-capsule-emails`
 - `process-exports`
 

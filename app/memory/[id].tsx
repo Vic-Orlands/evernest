@@ -1,9 +1,11 @@
 import { useMemo, useState } from "react";
 import { ActivityIndicator, Alert, Image, Pressable, ScrollView, Share, Text, TextInput, View } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { useLocalSearchParams, router } from "expo-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { LinearGradient } from "expo-linear-gradient";
 import { MotiView } from "moti";
+import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { addComment, getMemoryDetails, setReaction } from "@/lib/repositories";
 import { queryKeys } from "@/lib/query-keys";
 import { useAudioPlayer } from "expo-audio";
@@ -97,27 +99,34 @@ export default function MemoryDetailsScreen() {
 
   if (detailsQuery.isLoading) {
     return (
-      <View className="flex-1 items-center justify-center bg-night2">
-        <ActivityIndicator color={T.terracotta} />
-      </View>
+      <SafeAreaView edges={["top"]} style={{ flex: 1, backgroundColor: T.night2 }}>
+        <View className="flex-1 items-center justify-center">
+          <ActivityIndicator color={T.terracotta} />
+        </View>
+      </SafeAreaView>
     );
   }
 
   if (!detailsQuery.data) {
     return (
-      <View className="flex-1 items-center justify-center bg-night2 px-4">
-        <Text className="font-body text-moon">
-          {detailsQuery.error instanceof Error ? detailsQuery.error.message : "Memory not found."}
-        </Text>
-      </View>
+      <SafeAreaView edges={["top"]} style={{ flex: 1, backgroundColor: T.night2 }}>
+        <View className="flex-1 items-center justify-center px-4">
+          <Text className="font-body text-moon">
+            {detailsQuery.error instanceof Error ? detailsQuery.error.message : "Memory not found."}
+          </Text>
+        </View>
+      </SafeAreaView>
     );
   }
 
   const { memory, comments, reactions } = detailsQuery.data;
 
+  const mediaTypeBadge = memory.mediaType === "video" ? "Video" : memory.mediaType === "voice" ? "Voice" : "Photo";
+  const mediaTypeIcon = memory.mediaType === "video" ? "video-outline" : memory.mediaType === "voice" ? "microphone-outline" : "image-outline";
+
   return (
     <ScrollView contentInsetAdjustmentBehavior="automatic" className="flex-1 bg-night2" contentContainerStyle={{ paddingBottom: 120 }}>
-      <View className="h-[300px] overflow-hidden">
+      <View style={{ height: 380, overflow: "hidden" }}>
         {memory.mediaType === "image" && memory.mediaUrl ? (
           <Image source={{ uri: memory.mediaUrl }} className="h-full w-full" resizeMode="cover" />
         ) : null}
@@ -139,13 +148,35 @@ export default function MemoryDetailsScreen() {
         >
           <Pressable
             onPress={() => router.back()}
-            className="mb-3 h-8 w-8 items-center justify-center rounded-full border border-white/15 bg-black/45"
+            style={{ marginBottom: 12, height: 36, width: 36, alignItems: "center", justifyContent: "center", borderRadius: 18, borderWidth: 1, borderColor: "rgba(255,255,255,0.15)", backgroundColor: "rgba(0,0,0,0.45)" }}
           >
-            <Text className="font-body text-base text-cream">←</Text>
+            <MaterialCommunityIcons name="arrow-left" size={18} color={T.cream} />
           </Pressable>
           <Text className="font-display text-4xl text-cream">{memory.title}</Text>
           <Text className="mt-1 font-body text-xs text-moonDim">{new Date(memory.capturedAt).toLocaleString()}</Text>
         </LinearGradient>
+      </View>
+
+      {/* Metadata row */}
+      <View style={{ paddingHorizontal: 20, paddingTop: 12, flexDirection: "row", alignItems: "center", gap: 10 }}>
+        <View style={{ flex: 1, flexDirection: "row", alignItems: "center", gap: 8 }}>
+          <View style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: `${T.terracotta}25`, alignItems: "center", justifyContent: "center" }}>
+            <Text style={{ fontFamily: "DMSans_500Medium", fontSize: 12, color: T.terracotta }}>
+              {(memory.createdByName || "G").slice(0, 1).toUpperCase()}
+            </Text>
+          </View>
+          <Text style={{ fontFamily: "DMSans_400Regular", fontSize: 12, color: T.moon }}>
+            {memory.createdByName}
+          </Text>
+          <Text style={{ fontFamily: "DMSans_400Regular", fontSize: 10, color: T.moonDim }}>·</Text>
+          <Text style={{ fontFamily: "DMSans_400Regular", fontSize: 11, color: T.moonDim }}>
+            {new Date(memory.capturedAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}
+          </Text>
+        </View>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 4, borderWidth: 1, borderColor: T.night4, backgroundColor: T.night3, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 10 }}>
+          <MaterialCommunityIcons name={mediaTypeIcon as keyof typeof MaterialCommunityIcons.glyphMap} size={12} color={T.moonDim} />
+          <Text style={{ fontFamily: "DMSans_400Regular", fontSize: 10, color: T.moonDim }}>{mediaTypeBadge}</Text>
+        </View>
       </View>
 
       <View className="px-5 pt-4">
@@ -227,8 +258,12 @@ export default function MemoryDetailsScreen() {
           </Pressable>
         </MotiView>
 
-        <Pressable onPress={handleShare} className="mt-4 rounded-2xl border border-night4 px-4 py-3">
-          <Text className="text-center font-body text-moon">Export via share</Text>
+        <Pressable
+          onPress={handleShare}
+          style={{ marginTop: 16, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, borderWidth: 1, borderColor: T.night4, paddingHorizontal: 16, paddingVertical: 14, borderRadius: 16 }}
+        >
+          <MaterialCommunityIcons name="share-variant-outline" size={16} color={T.moon} />
+          <Text className="text-center font-body text-moon">Share this memory</Text>
         </Pressable>
       </View>
     </ScrollView>
