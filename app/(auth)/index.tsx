@@ -244,7 +244,7 @@ export default function AuthOnboardingScreen() {
             </View>
           </View>
 
-          <View className="flex-[0.38] justify-end">
+          <View className="flex-[0.38] justify-center">
             <Text className="text-center font-display text-[44px] leading-[46px] text-cream">EverNest</Text>
             <Text className="mt-3 text-center font-body text-[14px] leading-6 text-moonDim">
               A calm, beautiful archive for your child’s everyday story.

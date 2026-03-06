@@ -10,7 +10,7 @@ export default function AuthLayout() {
           presentation: "formSheet",
           animation: "slide_from_bottom",
           sheetGrabberVisible: true,
-          sheetAllowedDetents: [0.76, 0.92],
+          sheetAllowedDetents: "fitToContents",
           contentStyle: { backgroundColor: "transparent" }
         }}
       />
@@ -20,7 +20,7 @@ export default function AuthLayout() {
           presentation: "formSheet",
           animation: "slide_from_bottom",
           sheetGrabberVisible: true,
-          sheetAllowedDetents: [0.84, 0.96],
+          sheetAllowedDetents: "fitToContents",
           contentStyle: { backgroundColor: "transparent" }
         }}
       />
