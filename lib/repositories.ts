@@ -1,19 +1,26 @@
 import { supabase } from "@/lib/supabase";
 import { createCapsuleSchema, createMemorySchema, commentSchema, reactionSchema, reminderRuleSchema } from "@/lib/validation";
-import { Capsule, ExportJob, MemoryComment, MemoryDetails, MemoryItem, MemoryReaction, ReminderRule } from "@/lib/types";
+import { Capsule, ExportJob, MemoryAsset, MemoryComment, MemoryDetails, MemoryItem, MemoryReaction, MemoryVoiceNote, ReminderRule } from "@/lib/types";
 import { requireCurrentUserId } from "@/lib/current-user";
 import { toSupabaseSetupError } from "@/lib/supabase-setup";
-import { File } from "expo-file-system";
+import * as FileSystem from "expo-file-system/legacy";
+import { Buffer } from "buffer";
 
 type CreateMemoryInput = {
   familyId: string;
   childId: string;
   title: string;
   note: string;
-  mediaType: "image" | "video" | "voice";
-  mediaUri: string;
-  mediaMimeType?: string;
-  voiceNoteUri?: string;
+  media: {
+    uri: string;
+    type: "image" | "video";
+    mimeType?: string;
+  }[];
+  voiceNotes?: {
+    uri: string;
+    mimeType?: string;
+    durationMs?: number | null;
+  }[];
   tags: string[];
   capturedAt: string;
 };
@@ -36,9 +43,12 @@ function extensionFromUri(uri: string, fallback: string): string {
 }
 
 async function uploadPrivateFile(path: string, uri: string, mimeType?: string): Promise<void> {
-  const file = new File(uri);
+  const base64 = await FileSystem.readAsStringAsync(uri, {
+    encoding: "base64",
+  });
+  const fileData = Buffer.from(base64, "base64");
 
-  const { error } = await supabase.storage.from("memory-media").upload(path, file, {
+  const { error } = await supabase.storage.from("memory-media").upload(path, fileData, {
     upsert: false,
     contentType: mimeType
   });
@@ -80,6 +90,99 @@ async function getProfileNameMap(userIds: string[]): Promise<Map<string, string>
   return new Map((data ?? []).map((row) => [row.id, row.full_name ?? "Parent"]));
 }
 
+function mapAssetRows(
+  row: any,
+  signedUrlMap: Map<string, string>
+): MemoryAsset[] {
+  const nestedAssets = Array.isArray(row.memory_assets) ? row.memory_assets : [];
+  const assets = nestedAssets
+    .map((assetRow: any) => ({
+      id: assetRow.id,
+      mediaType: assetRow.media_type,
+      url: signedUrlMap.get(assetRow.media_path) ?? "",
+      path: assetRow.media_path,
+      order: assetRow.sort_order ?? 0
+    }))
+    .filter((asset: MemoryAsset) => Boolean(asset.url))
+    .sort((a: MemoryAsset, b: MemoryAsset) => a.order - b.order);
+
+  if (assets.length > 0) {
+    return assets;
+  }
+
+  if (row.media_path && row.media_type !== "voice") {
+    const fallbackUrl = signedUrlMap.get(row.media_path) ?? "";
+    if (fallbackUrl) {
+      return [
+        {
+          id: `${row.id}-legacy-asset`,
+          mediaType: row.media_type,
+          url: fallbackUrl,
+          path: row.media_path,
+          order: 0
+        }
+      ];
+    }
+  }
+
+  return [];
+}
+
+function mapVoiceRows(
+  row: any,
+  signedUrlMap: Map<string, string>
+): MemoryVoiceNote[] {
+  const nestedVoiceNotes = Array.isArray(row.memory_voice_notes)
+    ? row.memory_voice_notes
+    : [];
+  const voiceNotes = nestedVoiceNotes
+    .map((voiceRow: any) => ({
+      id: voiceRow.id,
+      url: signedUrlMap.get(voiceRow.audio_path) ?? "",
+      path: voiceRow.audio_path,
+      order: voiceRow.sort_order ?? 0,
+      durationMs: voiceRow.duration_ms ?? null
+    }))
+    .filter((voiceNote: MemoryVoiceNote) => Boolean(voiceNote.url))
+    .sort((a: MemoryVoiceNote, b: MemoryVoiceNote) => a.order - b.order);
+
+  if (voiceNotes.length > 0) {
+    return voiceNotes;
+  }
+
+  if (row.voice_note_path) {
+    const fallbackUrl = signedUrlMap.get(row.voice_note_path) ?? "";
+    if (fallbackUrl) {
+      return [
+        {
+          id: `${row.id}-legacy-voice`,
+          url: fallbackUrl,
+          path: row.voice_note_path,
+          order: 0,
+          durationMs: null
+        }
+      ];
+    }
+  }
+
+  if (row.media_type === "voice" && row.media_path) {
+    const fallbackUrl = signedUrlMap.get(row.media_path) ?? "";
+    if (fallbackUrl) {
+      return [
+        {
+          id: `${row.id}-legacy-voice-primary`,
+          url: fallbackUrl,
+          path: row.media_path,
+          order: 0,
+          durationMs: null
+        }
+      ];
+    }
+  }
+
+  return [];
+}
+
 function mapMemoryRows(
   rows: any[],
   signedUrlMap: Map<string, string>,
@@ -89,6 +192,10 @@ function mapMemoryRows(
     const tags = (row.memory_tags ?? []).map((tagRow: { tag: string }) => tagRow.tag);
     const commentsCount = (row.memory_comments ?? []).length;
     const reactionsCount = (row.memory_reactions ?? []).length;
+    const assets = mapAssetRows(row, signedUrlMap);
+    const voiceNotes = mapVoiceRows(row, signedUrlMap);
+    const primaryAsset = assets[0] ?? null;
+    const primaryVoiceNote = voiceNotes[0] ?? null;
 
     return {
       id: row.id,
@@ -96,8 +203,12 @@ function mapMemoryRows(
       title: row.title,
       note: row.note,
       mediaType: row.media_type,
-      mediaUrl: signedUrlMap.get(row.media_path) ?? "",
-      voiceNoteUrl: row.voice_note_path ? signedUrlMap.get(row.voice_note_path) ?? null : null,
+      mediaUrl: primaryAsset?.url ?? (row.media_path ? signedUrlMap.get(row.media_path) ?? "" : ""),
+      voiceNoteUrl: primaryVoiceNote?.url ?? null,
+      assets,
+      voiceNotes,
+      mediaCount: assets.length,
+      voiceNoteCount: voiceNotes.length,
       capturedAt: row.captured_at,
       createdById: row.created_by,
       createdByName: profileNameMap.get(row.created_by) ?? "Parent",
@@ -113,7 +224,7 @@ export async function listMemories(familyId: string, childId: string): Promise<M
   const { data, error } = await supabase
     .from("memories")
     .select(
-      "id, child_id, title, note, media_type, media_path, voice_note_path, captured_at, created_by, memory_tags(tag), memory_comments(id), memory_reactions(user_id)"
+      "id, child_id, title, note, media_type, media_path, voice_note_path, captured_at, created_by, memory_tags(tag), memory_comments(id), memory_reactions(user_id), memory_assets(id, media_type, media_path, sort_order), memory_voice_notes(id, audio_path, duration_ms, sort_order)"
     )
     .eq("family_id", familyId)
     .eq("child_id", childId)
@@ -123,7 +234,14 @@ export async function listMemories(familyId: string, childId: string): Promise<M
   if (error) throw toSupabaseSetupError(new Error(`Could not list memories: ${error.message}`));
 
   const rows = data ?? [];
-  const signedUrlMap = await createSignedUrlMap(rows.flatMap((row) => [row.media_path, row.voice_note_path]));
+  const signedUrlMap = await createSignedUrlMap(
+    rows.flatMap((row) => [
+      row.media_path,
+      row.voice_note_path,
+      ...((row.memory_assets ?? []).map((assetRow: any) => assetRow.media_path)),
+      ...((row.memory_voice_notes ?? []).map((voiceRow: any) => voiceRow.audio_path))
+    ])
+  );
   const profileNameMap = await getProfileNameMap(rows.map((row) => row.created_by));
 
   return mapMemoryRows(rows, signedUrlMap, profileNameMap);
@@ -133,7 +251,7 @@ export async function getMemoryDetails(memoryId: string): Promise<MemoryDetails>
   const { data: memoryRows, error: memoryError } = await supabase
     .from("memories")
     .select(
-      "id, child_id, title, note, media_type, media_path, voice_note_path, captured_at, created_by, family_id, memory_tags(tag), memory_comments(id), memory_reactions(user_id)"
+      "id, child_id, title, note, media_type, media_path, voice_note_path, captured_at, created_by, family_id, memory_tags(tag), memory_comments(id), memory_reactions(user_id), memory_assets(id, media_type, media_path, sort_order), memory_voice_notes(id, audio_path, duration_ms, sort_order)"
     )
     .eq("id", memoryId)
     .limit(1);
@@ -143,7 +261,12 @@ export async function getMemoryDetails(memoryId: string): Promise<MemoryDetails>
   const row = memoryRows?.[0];
   if (!row) throw new Error("Memory not found");
 
-  const signedUrlMap = await createSignedUrlMap([row.media_path, row.voice_note_path]);
+  const signedUrlMap = await createSignedUrlMap([
+    row.media_path,
+    row.voice_note_path,
+    ...((row.memory_assets ?? []).map((assetRow: any) => assetRow.media_path)),
+    ...((row.memory_voice_notes ?? []).map((voiceRow: any) => voiceRow.audio_path))
+  ]);
   const profileNameMap = await getProfileNameMap([row.created_by]);
 
   const memory = mapMemoryRows([row], signedUrlMap, profileNameMap)[0];
@@ -187,13 +310,18 @@ export async function getMemoryDetails(memoryId: string): Promise<MemoryDetails>
 }
 
 export async function createMemory(input: CreateMemoryInput): Promise<string> {
+  const primaryMedia = input.media[0];
+  if (!primaryMedia) {
+    throw new Error("Add at least one photo or video before saving.");
+  }
+
   const validated = createMemorySchema.parse({
     familyId: input.familyId,
     childId: input.childId,
     title: input.title,
     note: input.note,
     tags: input.tags,
-    mediaType: input.mediaType,
+    mediaType: primaryMedia.type,
     capturedAt: input.capturedAt
   });
 
@@ -203,17 +331,43 @@ export async function createMemory(input: CreateMemoryInput): Promise<string> {
     const r = (Math.random() * 16) | 0;
     return (c === "x" ? r : (r & 0x3) | 0x8).toString(16);
   });
-  const mediaExt = extensionFromUri(input.mediaUri, input.mediaType === "video" ? "mp4" : "jpg");
-  const mediaPath = `${validated.familyId}/${validated.childId}/${memoryId}-main.${mediaExt}`;
+  const assetRows = await Promise.all(
+    input.media.map(async (mediaItem, index) => {
+      const mediaExt = extensionFromUri(
+        mediaItem.uri,
+        mediaItem.type === "video" ? "mp4" : "jpg"
+      );
+      const mediaPath = `${validated.familyId}/${validated.childId}/${memoryId}-asset-${index + 1}.${mediaExt}`;
+      await uploadPrivateFile(mediaPath, mediaItem.uri, mediaItem.mimeType);
+      return {
+        memory_id: memoryId,
+        media_type: mediaItem.type,
+        media_path: mediaPath,
+        sort_order: index
+      };
+    })
+  );
 
-  await uploadPrivateFile(mediaPath, input.mediaUri, input.mediaMimeType);
+  const voiceRows = await Promise.all(
+    (input.voiceNotes ?? []).map(async (voiceNote, index) => {
+      const voiceExt = extensionFromUri(voiceNote.uri, "m4a");
+      const voicePath = `${validated.familyId}/${validated.childId}/${memoryId}-voice-${index + 1}.${voiceExt}`;
+      await uploadPrivateFile(
+        voicePath,
+        voiceNote.uri,
+        voiceNote.mimeType ?? "audio/m4a"
+      );
+      return {
+        memory_id: memoryId,
+        audio_path: voicePath,
+        duration_ms: voiceNote.durationMs ?? null,
+        sort_order: index
+      };
+    })
+  );
 
-  let voicePath: string | null = null;
-  if (input.voiceNoteUri) {
-    const voiceExt = extensionFromUri(input.voiceNoteUri, "m4a");
-    voicePath = `${validated.familyId}/${validated.childId}/${memoryId}-voice.${voiceExt}`;
-    await uploadPrivateFile(voicePath, input.voiceNoteUri, "audio/m4a");
-  }
+  const mediaPath = assetRows[0]!.media_path;
+  const voicePath = voiceRows[0]?.audio_path ?? null;
 
   const { error: insertError } = await supabase.from("memories").insert({
     id: memoryId,
@@ -221,7 +375,7 @@ export async function createMemory(input: CreateMemoryInput): Promise<string> {
     child_id: validated.childId,
     title: validated.title,
     note: validated.note,
-    media_type: validated.mediaType,
+    media_type: primaryMedia.type,
     media_path: mediaPath,
     voice_note_path: voicePath,
     captured_at: validated.capturedAt,
@@ -230,6 +384,20 @@ export async function createMemory(input: CreateMemoryInput): Promise<string> {
 
   if (insertError) {
     throw toSupabaseSetupError(new Error(`Could not create memory: ${insertError.message}`));
+  }
+
+  const { error: assetsError } = await supabase.from("memory_assets").insert(assetRows);
+  if (assetsError) {
+    throw toSupabaseSetupError(new Error(`Could not save memory assets: ${assetsError.message}`));
+  }
+
+  if (voiceRows.length > 0) {
+    const { error: voiceError } = await supabase
+      .from("memory_voice_notes")
+      .insert(voiceRows);
+    if (voiceError) {
+      throw toSupabaseSetupError(new Error(`Could not save voice notes: ${voiceError.message}`));
+    }
   }
 
   const cleanedTags = Array.from(new Set(validated.tags.map((tag) => tag.toLowerCase())));
@@ -242,6 +410,20 @@ export async function createMemory(input: CreateMemoryInput): Promise<string> {
   }
 
   return memoryId;
+}
+
+export async function deleteMemory(memoryId: string): Promise<void> {
+  const userId = await requireCurrentUserId();
+
+  // RLS will ensure they have write access via the family
+  const { error: deleteError } = await supabase
+    .from("memories")
+    .delete()
+    .eq("id", memoryId);
+
+  if (deleteError) {
+    throw toSupabaseSetupError(new Error(`Could not delete memory: ${deleteError.message}`));
+  }
 }
 
 export async function addComment(memoryId: string, body: string): Promise<void> {

@@ -78,6 +78,22 @@ export type FamilyMember = {
   avatarConfig: AvatarConfig | null;
 };
 
+export type MemoryAsset = {
+  id: string;
+  mediaType: "image" | "video";
+  url: string;
+  path: string;
+  order: number;
+};
+
+export type MemoryVoiceNote = {
+  id: string;
+  url: string;
+  path: string;
+  order: number;
+  durationMs: number | null;
+};
+
 export type MemoryItem = {
   id: string;
   childId: string;
@@ -86,6 +102,10 @@ export type MemoryItem = {
   mediaType: "image" | "video" | "voice";
   mediaUrl: string;
   voiceNoteUrl?: string | null;
+  assets: MemoryAsset[];
+  voiceNotes: MemoryVoiceNote[];
+  mediaCount: number;
+  voiceNoteCount: number;
   capturedAt: string;
   createdById: string;
   createdByName: string;

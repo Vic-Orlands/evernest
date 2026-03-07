@@ -17,6 +17,7 @@ import { router } from "expo-router";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { ChildSwitcher } from "@/components/child-switcher";
 import { EmptyState } from "@/components/empty-state";
+import { MemoryTile } from "@/components/memory-tile";
 import { ProfileAvatar } from "@/components/profile-avatar";
 import { useWorkspace } from "@/hooks/use-workspace";
 import { useProfile } from "@/hooks/use-profile";
@@ -29,7 +30,6 @@ import { MemoryItem } from "@/lib/types";
 import { listMilestones } from "@/lib/workspace";
 
 const BUTTON_PADDING_Y = 11;
-const MONTH_PREVIEW_LIMIT = 4;
 const MONTH_RAIL_PREVIEW_COUNT = 3;
 
 type ThemeColors = ReturnType<typeof useAppTheme>["colors"];
@@ -130,132 +130,6 @@ function FilterInput({
   );
 }
 
-function MemoryTile({
-  item,
-  big,
-  index,
-  colors,
-  gradients
-}: {
-  item: MemoryItem;
-  big?: boolean;
-  index: number;
-  colors: ThemeColors;
-  gradients: ThemeGradients;
-}) {
-  const gradientSet = Object.values(gradients);
-  const gradient = gradientSet[index % gradientSet.length];
-  const showImage = item.mediaType === "image" && Boolean(item.mediaUrl);
-
-  return (
-    <MotiView
-      from={{ opacity: 0, translateY: 10 }}
-      animate={{ opacity: 1, translateY: 0 }}
-      transition={{ type: "timing", duration: 320, delay: index * 35 }}
-      style={{ flex: big ? undefined : 1 }}
-    >
-      <Pressable onPress={() => router.push(`/memory/${item.id}`)}>
-        <View
-          style={{
-            height: big ? 188 : 118,
-            overflow: "hidden",
-            borderWidth: 1,
-            borderColor: colors.border,
-            backgroundColor: colors.surface
-          }}
-        >
-          {showImage ? (
-            <Image
-              source={{ uri: item.mediaUrl }}
-              resizeMode="cover"
-              style={{ width: "100%", height: "100%" }}
-            />
-          ) : (
-            <LinearGradient
-              colors={gradient}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={{ width: "100%", height: "100%", alignItems: "center", justifyContent: "center" }}
-            >
-              <MaterialCommunityIcons
-                name={
-                  item.mediaType === "video"
-                    ? "video-outline"
-                    : item.mediaType === "voice"
-                      ? "microphone-outline"
-                      : "image-outline"
-                }
-                size={26}
-                color="#FFFFFF"
-              />
-            </LinearGradient>
-          )}
-
-          <LinearGradient
-            colors={["rgba(0,0,0,0)", "rgba(0,0,0,0.84)"]}
-            style={{ position: "absolute", left: 0, right: 0, bottom: 0, padding: 12 }}
-          >
-            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
-              <View style={{ flex: 1 }}>
-                <Text
-                  numberOfLines={1}
-                  style={{
-                    color: "#FFFFFF",
-                    fontFamily: "DMSans_500Medium",
-                    fontSize: big ? 14 : 11
-                  }}
-                >
-                  {item.title}
-                </Text>
-                <Text
-                  numberOfLines={1}
-                  style={{
-                    color: "rgba(255,255,255,0.72)",
-                    fontFamily: "DMSans_400Regular",
-                    fontSize: 10,
-                    marginTop: 3
-                  }}
-                >
-                  {new Date(item.capturedAt).toLocaleDateString(undefined, {
-                    month: "short",
-                    day: "numeric"
-                  })}
-                </Text>
-              </View>
-              <View
-                style={{
-                  minWidth: 50,
-                  alignItems: "center",
-                  gap: 4,
-                  borderWidth: 1,
-                  borderColor: "rgba(255,255,255,0.14)",
-                  backgroundColor: "rgba(0,0,0,0.3)",
-                  paddingHorizontal: 8,
-                  paddingVertical: 5
-                }}
-              >
-                <MaterialCommunityIcons
-                  name={
-                    item.mediaType === "video"
-                      ? "video-outline"
-                      : item.mediaType === "voice"
-                        ? "microphone-outline"
-                        : "image-outline"
-                  }
-                  size={14}
-                  color="#FFFFFF"
-                />
-                <Text style={{ fontFamily: "DMSans_400Regular", fontSize: 9, color: "#FFFFFF" }}>
-                  {item.commentsCount + item.reactionsCount}
-                </Text>
-              </View>
-            </View>
-          </LinearGradient>
-        </View>
-      </Pressable>
-    </MotiView>
-  );
-}
 
 function QuickAction({
   icon,
@@ -367,8 +241,6 @@ export default function HomeScreen() {
   const [monthFilter, setMonthFilter] = useState("");
   const [yearFilter, setYearFilter] = useState("");
   const [dateFilter, setDateFilter] = useState("");
-  const [selectedMonthKey, setSelectedMonthKey] = useState<string | null>(null);
-  const [expandedMonthKey, setExpandedMonthKey] = useState<string | null>(null);
 
   useMemoryRealtime(workspace?.family.id, activeChild?.id);
 
@@ -442,27 +314,6 @@ export default function HomeScreen() {
 
     return Object.values(grouped);
   }, [filteredMemories]);
-
-  useEffect(() => {
-    if (!monthGroups.length) {
-      setSelectedMonthKey(null);
-      setExpandedMonthKey(null);
-      return;
-    }
-
-    const currentExists = selectedMonthKey && monthGroups.some((group) => group.key === selectedMonthKey);
-    if (!currentExists) {
-      setSelectedMonthKey(monthGroups[0].key);
-      setExpandedMonthKey(null);
-    }
-  }, [monthGroups, selectedMonthKey]);
-
-  const selectedMonth = useMemo(
-    () => monthGroups.find((group) => group.key === selectedMonthKey) ?? monthGroups[0] ?? null,
-    [monthGroups, selectedMonthKey]
-  );
-
-  const showingAllForSelectedMonth = selectedMonth && expandedMonthKey === selectedMonth.key;
 
   const refreshAll = async () => {
     await refetchWorkspace();
@@ -555,8 +406,6 @@ export default function HomeScreen() {
   const capturedToday = hasCapturedToday(allMemories);
   const incompleteMilestones = (milestonesQuery.data ?? []).filter((item) => !item.completedMemoryId).slice(0, 3);
   const hasActiveFilters = Boolean(query || monthFilter || yearFilter || dateFilter);
-  const previewItems = selectedMonth?.items.slice(0, MONTH_PREVIEW_LIMIT) ?? [];
-  const remainingItems = selectedMonth?.items.slice(MONTH_PREVIEW_LIMIT) ?? [];
 
   return (
     <SafeAreaView edges={["top"]} style={{ flex: 1, backgroundColor: colors.backgroundSecondary }}>
@@ -942,10 +791,9 @@ export default function HomeScreen() {
                   <MonthRailCard
                     key={group.key}
                     month={group}
-                    selected={selectedMonth?.key === group.key}
+                    selected={false}
                     onPress={() => {
-                      setSelectedMonthKey(group.key);
-                      setExpandedMonthKey(null);
+                      router.push({ pathname: "/month/[key]", params: { key: group.key } } as any);
                     }}
                     colors={colors}
                     gradients={gradients}
@@ -953,82 +801,6 @@ export default function HomeScreen() {
                 ))}
               </ScrollView>
             </View>
-
-            {selectedMonth ? (
-              <View
-                style={{
-                  borderWidth: 1,
-                  borderColor: colors.border,
-                  backgroundColor: colors.surface,
-                  padding: 16,
-                  gap: 14
-                }}
-              >
-                <View style={{ flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={{ fontFamily: "InstrumentSerif_400Regular", fontSize: 28, color: colors.text }}>
-                      {selectedMonth.label}
-                    </Text>
-                    <Text style={{ fontFamily: "DMSans_400Regular", fontSize: 11, color: colors.textMuted, marginTop: 3 }}>
-                      {selectedMonth.count} {selectedMonth.count === 1 ? "memory" : "memories"} saved
-                    </Text>
-                  </View>
-                  {selectedMonth.count > MONTH_PREVIEW_LIMIT ? (
-                    <Pressable
-                      onPress={() =>
-                        setExpandedMonthKey((current) =>
-                          current === selectedMonth.key ? null : selectedMonth.key
-                        )
-                      }
-                      style={{
-                        borderWidth: 1,
-                        borderColor: colors.border,
-                        backgroundColor: colors.surfaceSecondary,
-                        paddingHorizontal: 12,
-                        paddingVertical: BUTTON_PADDING_Y
-                      }}
-                    >
-                      <Text style={{ fontFamily: "DMSans_500Medium", fontSize: 11, color: colors.text }}>
-                        {showingAllForSelectedMonth ? "Show fewer" : "View all memories"}
-                      </Text>
-                    </Pressable>
-                  ) : null}
-                </View>
-
-                {previewItems[0] ? (
-                  <MemoryTile item={previewItems[0]} big index={0} colors={colors} gradients={gradients} />
-                ) : null}
-
-                {previewItems.length > 1 ? (
-                  <View style={{ flexDirection: "row", gap: 10 }}>
-                    {previewItems.slice(1).map((memory, index) => (
-                      <MemoryTile
-                        key={memory.id}
-                        item={memory}
-                        index={index + 1}
-                        colors={colors}
-                        gradients={gradients}
-                      />
-                    ))}
-                  </View>
-                ) : null}
-
-                {showingAllForSelectedMonth && remainingItems.length > 0 ? (
-                  <View style={{ gap: 10 }}>
-                    {remainingItems.map((memory, index) => (
-                      <MemoryTile
-                        key={memory.id}
-                        item={memory}
-                        big={index === 0 && previewItems.length === 0}
-                        index={index + previewItems.length}
-                        colors={colors}
-                        gradients={gradients}
-                      />
-                    ))}
-                  </View>
-                ) : null}
-              </View>
-            ) : null}
           </View>
         ) : null}
       </ScrollView>

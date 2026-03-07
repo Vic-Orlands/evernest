@@ -4,15 +4,71 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useLocalSearchParams, router } from "expo-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { LinearGradient } from "expo-linear-gradient";
-import { MotiView } from "moti";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
-import { addComment, getMemoryDetails, setReaction } from "@/lib/repositories";
-import { queryKeys } from "@/lib/query-keys";
 import { useAudioPlayer } from "expo-audio";
 import { useVideoPlayer, VideoView } from "expo-video";
+import { addComment, deleteMemory, getMemoryDetails, setReaction } from "@/lib/repositories";
+import { queryKeys } from "@/lib/query-keys";
 import { useAppTheme } from "@/hooks/use-app-theme";
+import { MemoryVoiceNote } from "@/lib/types";
 
 const emojiOptions = ["❤️", "👏", "😂", "🥹", "🔥", "🎉"] as const;
+
+function formatDurationMs(durationMs: number | null): string {
+  if (!durationMs) return "00:00";
+  const totalSeconds = Math.max(1, Math.round(durationMs / 1000));
+  const mins = Math.floor(totalSeconds / 60)
+    .toString()
+    .padStart(2, "0");
+  const secs = Math.floor(totalSeconds % 60)
+    .toString()
+    .padStart(2, "0");
+  return `${mins}:${secs}`;
+}
+
+function VoiceNoteRow({
+  note,
+  colors
+}: {
+  note: MemoryVoiceNote;
+  colors: ReturnType<typeof useAppTheme>["colors"];
+}) {
+  const player = useAudioPlayer(note.url);
+
+  return (
+    <View style={{ borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surfaceSecondary, padding: 12 }}>
+      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+        <View style={{ flex: 1, flexDirection: "row", alignItems: "center", gap: 10 }}>
+          <View style={{ width: 36, height: 36, backgroundColor: colors.brandBackground, alignItems: "center", justifyContent: "center" }}>
+            <MaterialCommunityIcons name={player.playing ? "pause" : "play"} size={18} color={colors.brand} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={{ fontFamily: "DMSans_500Medium", fontSize: 13, color: colors.text }}>
+              Voice note
+            </Text>
+            <Text style={{ marginTop: 2, fontFamily: "DMSans_400Regular", fontSize: 11, color: colors.textMuted }}>
+              {formatDurationMs(note.durationMs)}
+            </Text>
+          </View>
+        </View>
+        <Pressable
+          onPress={() => {
+            if (player.playing) {
+              player.pause();
+              return;
+            }
+            player.play();
+          }}
+          style={{ borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, paddingHorizontal: 12, paddingVertical: 10 }}
+        >
+          <Text style={{ fontFamily: "DMSans_400Regular", fontSize: 11, color: colors.text }}>
+            {player.playing ? "Pause" : "Play"}
+          </Text>
+        </Pressable>
+      </View>
+    </View>
+  );
+}
 
 export default function MemoryDetailsScreen() {
   const { colors, gradients } = useAppTheme();
@@ -20,6 +76,7 @@ export default function MemoryDetailsScreen() {
   const memoryId = typeof id === "string" ? id : "";
   const queryClient = useQueryClient();
   const [comment, setComment] = useState("");
+  const [selectedAssetId, setSelectedAssetId] = useState<string | null>(null);
 
   const detailsQuery = useQuery({
     queryKey: queryKeys.memoryDetails(memoryId),
@@ -33,24 +90,22 @@ export default function MemoryDetailsScreen() {
     return gradientSet[code % gradientSet.length];
   }, [gradientSet, memoryId]);
 
+  const selectedAsset = useMemo(() => {
+    const assets = detailsQuery.data?.memory.assets ?? [];
+    return assets.find((asset) => asset.id === selectedAssetId) ?? assets[0] ?? null;
+  }, [detailsQuery.data, selectedAssetId]);
+
   const videoSource = useMemo(() => {
-    if (detailsQuery.data?.memory.mediaType === "video") {
-      return detailsQuery.data.memory.mediaUrl;
+    if (selectedAsset?.mediaType === "video") {
+      return selectedAsset.url;
     }
     return null;
-  }, [detailsQuery.data]);
+  }, [selectedAsset]);
 
   const videoPlayer = useVideoPlayer(videoSource, (player) => {
     player.loop = true;
     player.play();
   });
-
-  const audioSource = useMemo(() => {
-    if (detailsQuery.data?.memory.mediaType === "voice") return detailsQuery.data.memory.mediaUrl;
-    return detailsQuery.data?.memory.voiceNoteUrl ?? null;
-  }, [detailsQuery.data]);
-
-  const audioPlayer = useAudioPlayer(audioSource);
 
   const commentMutation = useMutation({
     mutationFn: async () => addComment(memoryId, comment),
@@ -73,20 +128,35 @@ export default function MemoryDetailsScreen() {
     }
   });
 
+  const deleteMutation = useMutation({
+    mutationFn: async () => deleteMemory(memoryId),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: queryKeys.memoryDetails(memoryId) });
+      await queryClient.invalidateQueries({ queryKey: ["memories"] });
+      router.replace("/(tabs)");
+    },
+    onError: (error) => {
+      Alert.alert("Delete failed", error instanceof Error ? error.message : "Unknown error");
+    }
+  });
+
+  const confirmDelete = () => {
+    Alert.alert(
+      "Delete memory?",
+      "Are you sure you want to delete this memory? This action cannot be undone.",
+      [
+        { text: "Cancel", style: "cancel" },
+        { text: "Delete", style: "destructive", onPress: () => deleteMutation.mutate() }
+      ]
+    );
+  };
+
   const handleShare = async () => {
     if (!detailsQuery.data) return;
     const { memory } = detailsQuery.data;
     const message = `${memory.title}\n${new Date(memory.capturedAt).toDateString()}\n\n${memory.note}\n\nShared from EverNest.`;
-    await Share.share({ message, url: memory.mediaUrl });
-  };
-
-  const playVoice = () => {
-    if (!audioSource) return;
-    if (audioPlayer.playing) {
-      audioPlayer.pause();
-      return;
-    }
-    audioPlayer.play();
+    const shareUrl = selectedAsset?.url ?? memory.mediaUrl ?? memory.voiceNotes[0]?.url;
+    await Share.share(shareUrl ? { message, url: shareUrl } : { message });
   };
 
   if (detailsQuery.isLoading) {
@@ -112,18 +182,30 @@ export default function MemoryDetailsScreen() {
   }
 
   const { memory, comments, reactions } = detailsQuery.data;
-  const mediaTypeBadge = memory.mediaType === "video" ? "Video" : memory.mediaType === "voice" ? "Voice" : "Photo";
-  const mediaTypeIcon = memory.mediaType === "video" ? "video-outline" : memory.mediaType === "voice" ? "microphone-outline" : "image-outline";
+  const mediaTypeBadge =
+    memory.mediaCount > 1
+      ? `${memory.mediaCount} items`
+      : memory.mediaType === "video"
+        ? "Video"
+        : memory.mediaType === "voice"
+          ? "Voice"
+          : "Photo";
+  const mediaTypeIcon =
+    memory.mediaType === "video"
+      ? "video-outline"
+      : memory.mediaType === "voice"
+        ? "microphone-outline"
+        : "image-outline";
 
   return (
     <SafeAreaView edges={["top"]} style={{ flex: 1, backgroundColor: colors.backgroundSecondary }}>
       <ScrollView contentInsetAdjustmentBehavior="automatic" contentContainerStyle={{ paddingBottom: 120 }}>
         <View style={{ height: 390, overflow: "hidden" }}>
-          {memory.mediaType === "image" && memory.mediaUrl ? (
-            <Image source={{ uri: memory.mediaUrl }} resizeMode="cover" style={{ width: "100%", height: "100%" }} />
+          {selectedAsset?.mediaType === "image" ? (
+            <Image source={{ uri: selectedAsset.url }} resizeMode="cover" style={{ width: "100%", height: "100%" }} />
           ) : null}
 
-          {memory.mediaType === "video" && memory.mediaUrl ? (
+          {selectedAsset?.mediaType === "video" ? (
             <VideoView
               player={videoPlayer}
               nativeControls
@@ -133,11 +215,11 @@ export default function MemoryDetailsScreen() {
             />
           ) : null}
 
-          {memory.mediaType === "voice" || !memory.mediaUrl ? (
+          {!selectedAsset ? (
             <LinearGradient colors={fallbackGradient} style={{ width: "100%", height: "100%", alignItems: "center", justifyContent: "center" }}>
               <Text style={{ fontSize: 56 }}>🎙️</Text>
               <Text style={{ marginTop: 10, fontFamily: "DMSans_400Regular", fontSize: 13, color: "#FFFFFF" }}>
-                {memory.mediaType === "voice" ? "Voice memory" : "Saved memory"}
+                Voice memory
               </Text>
             </LinearGradient>
           ) : null}
@@ -169,6 +251,35 @@ export default function MemoryDetailsScreen() {
             </Text>
           </LinearGradient>
         </View>
+
+        {memory.assets.length > 1 ? (
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 14, gap: 10 }}
+          >
+            {memory.assets.map((asset, index) => {
+              const active = asset.id === selectedAsset?.id;
+
+              return (
+                <Pressable key={asset.id} onPress={() => setSelectedAssetId(asset.id)} style={{ width: 90 }}>
+                  <View style={{ height: 104, overflow: "hidden", borderWidth: 2, borderColor: active ? colors.brand : colors.border, backgroundColor: colors.surface }}>
+                    {asset.mediaType === "image" ? (
+                      <Image source={{ uri: asset.url }} resizeMode="cover" style={{ width: "100%", height: "100%" }} />
+                    ) : (
+                      <View style={{ flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: colors.surfaceSecondary }}>
+                        <MaterialCommunityIcons name="video-outline" size={24} color={colors.text} />
+                      </View>
+                    )}
+                  </View>
+                  <Text style={{ marginTop: 6, fontFamily: "DMSans_400Regular", fontSize: 11, color: active ? colors.brand : colors.textMuted }}>
+                    {asset.mediaType === "image" ? "Photo" : "Video"} {index + 1}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+        ) : null}
 
         <View style={{ paddingHorizontal: 20, paddingTop: 14, flexDirection: "row", alignItems: "center", gap: 10 }}>
           <View style={{ flex: 1, flexDirection: "row", alignItems: "center", gap: 8 }}>
@@ -206,23 +317,15 @@ export default function MemoryDetailsScreen() {
             </View>
           ) : null}
 
-          {memory.voiceNoteUrl || memory.mediaType === "voice" ? (
-            <Pressable
-              onPress={playVoice}
-              style={{
-                marginTop: 16,
-                alignSelf: "flex-start",
-                borderWidth: 1,
-                borderColor: colors.border,
-                backgroundColor: colors.surface,
-                paddingHorizontal: 16,
-                paddingVertical: 11
-              }}
-            >
-              <Text style={{ fontFamily: "DMSans_400Regular", fontSize: 13, color: colors.text }}>
-                {audioPlayer.playing ? "Pause voice note" : "Play voice note"}
+          {memory.voiceNotes.length > 0 ? (
+            <View style={{ marginTop: 18, gap: 10 }}>
+              <Text style={{ fontFamily: "DMSans_500Medium", fontSize: 14, color: colors.text }}>
+                Voice notes
               </Text>
-            </Pressable>
+              {memory.voiceNotes.map((voiceNote) => (
+                <VoiceNoteRow key={voiceNote.id} note={voiceNote} colors={colors} />
+              ))}
+            </View>
           ) : null}
 
           <View style={{ marginTop: 20, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, padding: 16 }}>
@@ -265,54 +368,61 @@ export default function MemoryDetailsScreen() {
               onChangeText={setComment}
               placeholder="Add a comment"
               placeholderTextColor={colors.textMuted}
+              multiline
               style={{
                 marginTop: 14,
                 borderWidth: 1,
                 borderColor: colors.border,
                 backgroundColor: colors.surfaceSecondary,
                 paddingHorizontal: 14,
-                paddingVertical: 11,
+                paddingVertical: 12,
                 fontFamily: "DMSans_400Regular",
-                fontSize: 14,
-                color: colors.text
+                fontSize: 13,
+                color: colors.text,
+                minHeight: 64
               }}
             />
+
+            <View style={{ marginTop: 12, flexDirection: "row", gap: 10 }}>
+              <Pressable
+                onPress={() => commentMutation.mutate()}
+                disabled={!comment.trim() || commentMutation.isPending}
+                style={{ flex: 1, backgroundColor: colors.brand, paddingVertical: 12 }}
+              >
+                <Text style={{ textAlign: "center", fontFamily: "DMSans_500Medium", fontSize: 13, color: "#FFFFFF" }}>
+                  {commentMutation.isPending ? "Posting..." : "Post comment"}
+                </Text>
+              </Pressable>
+              <Pressable
+                onPress={() => {
+                  void handleShare();
+                }}
+                style={{ borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surfaceSecondary, paddingHorizontal: 16, justifyContent: "center" }}
+              >
+                <Text style={{ fontFamily: "DMSans_400Regular", fontSize: 12, color: colors.text }}>
+                  Share this memory
+                </Text>
+              </Pressable>
+            </View>
+          </View>
+
+          <View style={{ marginTop: 24, paddingBottom: 24 }}>
             <Pressable
-              onPress={() => commentMutation.mutate()}
-              disabled={commentMutation.isPending || comment.trim().length === 0}
+              onPress={confirmDelete}
+              disabled={deleteMutation.isPending}
               style={{
-                marginTop: 12,
-                backgroundColor: colors.brand,
-                paddingVertical: 11,
-                opacity: comment.trim().length === 0 ? 0.5 : 1
+                borderWidth: 1,
+                borderColor: "rgba(239, 68, 68, 0.3)",
+                backgroundColor: "rgba(239, 68, 68, 0.05)",
+                paddingVertical: 14,
+                alignItems: "center"
               }}
             >
-              <Text style={{ textAlign: "center", fontFamily: "DMSans_500Medium", fontSize: 14, color: "#FFFFFF" }}>
-                {commentMutation.isPending ? "Sending..." : "Post comment"}
+              <Text style={{ fontFamily: "DMSans_500Medium", fontSize: 13, color: "rgb(239, 68, 68)" }}>
+                {deleteMutation.isPending ? "Deleting..." : "Delete memory"}
               </Text>
             </Pressable>
           </View>
-
-          <Pressable
-            onPress={handleShare}
-            style={{
-              marginTop: 16,
-              flexDirection: "row",
-              alignItems: "center",
-              justifyContent: "center",
-              gap: 8,
-              borderWidth: 1,
-              borderColor: colors.border,
-              backgroundColor: colors.surface,
-              paddingHorizontal: 16,
-              paddingVertical: 11
-            }}
-          >
-            <MaterialCommunityIcons name="share-variant-outline" size={16} color={colors.text} />
-            <Text style={{ fontFamily: "DMSans_400Regular", fontSize: 13, color: colors.text }}>
-              Share this memory
-            </Text>
-          </Pressable>
         </View>
       </ScrollView>
     </SafeAreaView>

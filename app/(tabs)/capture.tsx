@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
-  Dimensions,
   Image,
   KeyboardAvoidingView,
   Platform,
@@ -9,7 +8,8 @@ import {
   ScrollView,
   Text,
   TextInput,
-  View
+  View,
+  useWindowDimensions
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as ImagePicker from "expo-image-picker";
@@ -33,10 +33,7 @@ import {
   useAudioRecorderState
 } from "expo-audio";
 import * as Haptics from "expo-haptics";
-import {
-  GestureDetector,
-  Gesture
-} from "react-native-gesture-handler";
+import { GestureDetector, Gesture } from "react-native-gesture-handler";
 import { ChildSwitcher } from "@/components/child-switcher";
 import { useAppTheme } from "@/hooks/use-app-theme";
 import { useWorkspace } from "@/hooks/use-workspace";
@@ -46,9 +43,40 @@ import { darkPalette } from "@/lib/theme";
 import { listMilestones } from "@/lib/workspace";
 
 const TIMER_OPTIONS = [0, 3, 10] as const;
-const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
 type CaptureMode = "photo" | "video";
+
+type DraftMediaItem = {
+  id: string;
+  uri: string;
+  type: "image" | "video";
+  mimeType?: string;
+};
+
+type DraftVoiceNote = {
+  id: string;
+  uri: string;
+  durationMs: number | null;
+};
+
+function createDraftId(prefix: string): string {
+  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function formatSeconds(totalSeconds: number): string {
+  const mins = Math.floor(totalSeconds / 60)
+    .toString()
+    .padStart(2, "0");
+  const secs = Math.floor(totalSeconds % 60)
+    .toString()
+    .padStart(2, "0");
+  return `${mins}:${secs}`;
+}
+
+function formatDurationMs(durationMs: number | null): string {
+  if (!durationMs) return "00:00";
+  return formatSeconds(Math.max(1, Math.round(durationMs / 1000)));
+}
 
 function ControlPill({
   icon,
@@ -100,10 +128,172 @@ function ControlPill({
   );
 }
 
+function RecordingWave({
+  active,
+  accent
+}: {
+  active: boolean;
+  accent: string;
+}) {
+  return (
+    <View
+      style={{
+        height: 26,
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 4
+      }}
+    >
+      {[0, 1, 2, 3, 4].map((index) => (
+        <MotiView
+          key={index}
+          from={{ scaleY: 0.35, opacity: active ? 0.55 : 0.28 }}
+          animate={{
+            scaleY: active ? [0.35, 1.05, 0.45, 0.9, 0.35] : 0.35,
+            opacity: active ? [0.45, 1, 0.55, 0.9, 0.45] : 0.28
+          }}
+          transition={{
+            type: "timing",
+            duration: 700,
+            delay: index * 90,
+            loop: active
+          }}
+          style={{
+            width: 4,
+            height: 22,
+            borderRadius: 999,
+            backgroundColor: accent
+          }}
+        />
+      ))}
+    </View>
+  );
+}
+
+function VoiceNoteRow({
+  note,
+  colors,
+  onRemove
+}: {
+  note: DraftVoiceNote;
+  colors: ReturnType<typeof useAppTheme>["colors"];
+  onRemove: () => void;
+}) {
+  const player = useAudioPlayer(note.uri);
+
+  return (
+    <View
+      style={{
+        borderWidth: 1,
+        borderColor: colors.border,
+        backgroundColor: colors.surface,
+        padding: 12,
+        gap: 10
+      }}
+    >
+      <View
+        style={{
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 12
+        }}
+      >
+        <View style={{ flex: 1, flexDirection: "row", alignItems: "center", gap: 10 }}>
+          <View
+            style={{
+              width: 38,
+              height: 38,
+              alignItems: "center",
+              justifyContent: "center",
+              backgroundColor: colors.brandBackground
+            }}
+          >
+            <MaterialCommunityIcons
+              name={player.playing ? "pause" : "play"}
+              size={18}
+              color={colors.brand}
+            />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text
+              style={{
+                fontFamily: "DMSans_500Medium",
+                fontSize: 13,
+                color: colors.text
+              }}
+            >
+              Voice note
+            </Text>
+            <Text
+              style={{
+                marginTop: 2,
+                fontFamily: "DMSans_400Regular",
+                fontSize: 11,
+                color: colors.textMuted
+              }}
+            >
+              {formatDurationMs(note.durationMs)}
+            </Text>
+          </View>
+        </View>
+        <Pressable
+          onPress={onRemove}
+          style={{
+            borderWidth: 1,
+            borderColor: colors.border,
+            paddingHorizontal: 12,
+            paddingVertical: 10,
+            backgroundColor: colors.surfaceSecondary
+          }}
+        >
+          <Text
+            style={{
+              fontFamily: "DMSans_400Regular",
+              fontSize: 11,
+              color: colors.text
+            }}
+          >
+            Remove
+          </Text>
+        </Pressable>
+      </View>
+
+      <Pressable
+        onPress={() => {
+          if (player.playing) {
+            player.pause();
+            return;
+          }
+          player.play();
+        }}
+        style={{
+          borderWidth: 1,
+          borderColor: colors.border,
+          paddingVertical: 11,
+          backgroundColor: colors.surfaceSecondary
+        }}
+      >
+        <Text
+          style={{
+            textAlign: "center",
+            fontFamily: "DMSans_400Regular",
+            fontSize: 12,
+            color: colors.text
+          }}
+        >
+          {player.playing ? "Pause playback" : "Play voice note"}
+        </Text>
+      </Pressable>
+    </View>
+  );
+}
+
 export default function CaptureScreen() {
   const insets = useSafeAreaInsets();
   const queryClient = useQueryClient();
   const { colors } = useAppTheme();
+  const { height: screenHeight } = useWindowDimensions();
   const cameraRef = useRef<CameraView | null>(null);
   const {
     workspace,
@@ -130,20 +320,18 @@ export default function CaptureScreen() {
   const [title, setTitle] = useState("");
   const [note, setNote] = useState("");
   const [tagsInput, setTagsInput] = useState("");
-  const [assetUri, setAssetUri] = useState<string | null>(null);
-  const [assetType, setAssetType] = useState<"image" | "video">("image");
-  const [assetMimeType, setAssetMimeType] = useState<string | undefined>(
-    undefined
-  );
   const [selectedMilestoneId, setSelectedMilestoneId] = useState<string | null>(
     null
   );
+  const [draftMedia, setDraftMedia] = useState<DraftMediaItem[]>([]);
+  const [selectedMediaId, setSelectedMediaId] = useState<string | null>(null);
+  const [voiceNotes, setVoiceNotes] = useState<DraftVoiceNote[]>([]);
+  const [showDraftReview, setShowDraftReview] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [cameraBusy, setCameraBusy] = useState(false);
   const [countdownSeconds, setCountdownSeconds] = useState<number | null>(null);
   const [recordingElapsed, setRecordingElapsed] = useState(0);
   const [showShutterFlash, setShowShutterFlash] = useState(false);
-  const [voiceNoteUri, setVoiceNoteUri] = useState<string | null>(null);
   const [isVoiceNoteRecording, setIsVoiceNoteRecording] = useState(false);
 
   const T = {
@@ -163,10 +351,6 @@ export default function CaptureScreen() {
 
   const voiceRecorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const voiceRecorderState = useAudioRecorderState(voiceRecorder);
-  const voicePreviewPlayer = useAudioPlayer(voiceNoteUri ?? null);
-
-  // Pinch-to-zoom ref for tracking base zoom level
-  const zoomBase = useRef(0);
 
   const milestonesQuery = useQuery({
     queryKey: activeChild
@@ -176,15 +360,28 @@ export default function CaptureScreen() {
     queryFn: async () => listMilestones(activeChild!.id)
   });
 
+  const selectedMedia = useMemo(
+    () =>
+      draftMedia.find((item) => item.id === selectedMediaId) ??
+      draftMedia[0] ??
+      null,
+    [draftMedia, selectedMediaId]
+  );
+
   const previewPlayer = useVideoPlayer(
-    assetType === "video" && assetUri ? assetUri : null,
+    selectedMedia?.type === "video" ? selectedMedia.uri : null,
     (player) => {
       player.loop = true;
       player.play();
     }
   );
 
-  // Recording elapsed timer
+  useEffect(() => {
+    if (!selectedMedia && draftMedia.length > 0) {
+      setSelectedMediaId(draftMedia[0].id);
+    }
+  }, [draftMedia, selectedMedia]);
+
   useEffect(() => {
     if (!isRecording) {
       setRecordingElapsed(0);
@@ -212,29 +409,27 @@ export default function CaptureScreen() {
     [milestonesQuery.data]
   );
 
-  const recordingLabel = useMemo(() => {
-    const mins = Math.floor(recordingElapsed / 60)
-      .toString()
-      .padStart(2, "0");
-    const secs = Math.floor(recordingElapsed % 60)
-      .toString()
-      .padStart(2, "0");
-    return `${mins}:${secs}`;
-  }, [recordingElapsed]);
+  const recordingLabel = useMemo(
+    () => formatSeconds(recordingElapsed),
+    [recordingElapsed]
+  );
 
-  // Pinch gesture for zoom
+  const composerHeight = Math.min(
+    Math.max(screenHeight * 0.52, 360),
+    screenHeight - insets.top - 88
+  );
+
   const pinchGesture = Gesture.Pinch()
     .onStart(() => {
       zoomBase.current = zoom;
     })
     .onUpdate((event) => {
       const scaleDelta = (event.scale - 1) * 0.5;
-      const newZoom = Math.max(
-        0,
-        Math.min(1, zoomBase.current + scaleDelta)
-      );
+      const newZoom = Math.max(0, Math.min(1, zoomBase.current + scaleDelta));
       setZoom(Number(newZoom.toFixed(2)));
     });
+
+  const zoomBase = useRef(0);
 
   const cycleFlashMode = () => {
     setFlashMode((current) =>
@@ -255,33 +450,63 @@ export default function CaptureScreen() {
     );
   };
 
-  const assignAsset = async (
+  const addDraftMedia = async (
     uri: string,
     mediaType: "image" | "video",
-    mimeType?: string
+    mimeType?: string,
+    options?: { openReview?: boolean }
   ) => {
-    setAssetUri(uri);
-    setAssetType(mediaType);
-    setAssetMimeType(mimeType);
+    const nextItem = {
+      id: createDraftId("media"),
+      uri,
+      type: mediaType,
+      mimeType
+    } satisfies DraftMediaItem;
+
+    const shouldOpenReview =
+      options?.openReview ?? draftMedia.length === 0;
+
+    setDraftMedia((current) => [...current, nextItem]);
+    setSelectedMediaId(nextItem.id);
     setSelectedMilestoneId(null);
+    if (shouldOpenReview) {
+      setShowDraftReview(true);
+    }
     await Haptics.notificationAsync(
       Haptics.NotificationFeedbackType.Success
     ).catch(() => undefined);
   };
 
+  const removeDraftMedia = (mediaId: string) => {
+    setDraftMedia((current) => {
+      const nextMedia = current.filter((item) => item.id !== mediaId);
+      if (nextMedia.length === 0) {
+        previewPlayer.pause();
+        setSelectedMediaId(null);
+        setShowDraftReview(false);
+        return [];
+      }
+      if (selectedMediaId === mediaId) {
+        setSelectedMediaId(nextMedia[0].id);
+      }
+      return nextMedia;
+    });
+  };
+
   const clearDraft = () => {
-    voicePreviewPlayer.pause();
-    setAssetUri(null);
-    setAssetMimeType(undefined);
+    previewPlayer.pause();
+    setDraftMedia([]);
+    setSelectedMediaId(null);
     setTitle("");
     setNote("");
     setTagsInput("");
     setSelectedMilestoneId(null);
+    setShowDraftReview(false);
     setIsRecording(false);
     setCameraBusy(false);
     setCountdownSeconds(null);
     setRecordingElapsed(0);
-    setVoiceNoteUri(null);
+    setVoiceNotes([]);
     setIsVoiceNoteRecording(false);
   };
 
@@ -289,7 +514,10 @@ export default function CaptureScreen() {
     if (isVoiceNoteRecording) return;
     const permission = await requestRecordingPermissionsAsync();
     if (!permission.granted) {
-      Alert.alert("Permission needed", "Microphone access is required for voice notes.");
+      Alert.alert(
+        "Permission needed",
+        "Microphone access is required for voice notes."
+      );
       return;
     }
     await setAudioModeAsync({
@@ -306,22 +534,20 @@ export default function CaptureScreen() {
     await voiceRecorder.stop();
     const nextUri = voiceRecorder.uri ?? voiceRecorderState.url;
     if (nextUri) {
-      setVoiceNoteUri(nextUri);
+      setVoiceNotes((current) => [
+        ...current,
+        {
+          id: createDraftId("voice"),
+          uri: nextUri,
+          durationMs: voiceRecorderState.durationMillis ?? null
+        }
+      ]);
     }
     setIsVoiceNoteRecording(false);
     await setAudioModeAsync({
       playsInSilentMode: true,
       allowsRecording: false
     }).catch(() => undefined);
-  };
-
-  const toggleVoicePreview = () => {
-    if (!voiceNoteUri) return;
-    if (voicePreviewPlayer.playing) {
-      voicePreviewPlayer.pause();
-      return;
-    }
-    voicePreviewPlayer.play();
   };
 
   const pickFromLibrary = async () => {
@@ -334,17 +560,18 @@ export default function CaptureScreen() {
       return;
     }
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: mode === "photo" ? ["images"] : ["videos"],
+      mediaTypes: ["images", "videos"],
       allowsEditing: false,
       quality: 0.92,
       videoMaxDuration: 90
     });
     if (!result.canceled && result.assets[0]) {
       const selected = result.assets[0];
-      await assignAsset(
+      await addDraftMedia(
         selected.uri,
         selected.type === "video" ? "video" : "image",
-        selected.mimeType
+        selected.mimeType,
+        { openReview: showDraftReview || draftMedia.length === 0 }
       );
     }
   };
@@ -373,14 +600,11 @@ export default function CaptureScreen() {
       await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(
         () => undefined
       );
-
-      // Trigger shutter flash
       setShowShutterFlash(true);
       setTimeout(() => setShowShutterFlash(false), 280);
-
       const photo = await cameraRef.current.takePictureAsync({ quality: 0.9 });
       if (photo?.uri) {
-        await assignAsset(photo.uri, "image", "image/jpeg");
+        await addDraftMedia(photo.uri, "image", "image/jpeg");
       }
     } catch (error) {
       Alert.alert(
@@ -414,7 +638,7 @@ export default function CaptureScreen() {
         maxDuration: 90
       });
       if (recording?.uri) {
-        await assignAsset(recording.uri, "video", "video/mp4");
+        await addDraftMedia(recording.uri, "video", "video/mp4");
       }
     } catch (error) {
       Alert.alert(
@@ -450,13 +674,15 @@ export default function CaptureScreen() {
 
   const saveMutation = useMutation({
     mutationFn: async () => {
-      if (!workspace || !activeChild || !assetUri)
-        throw new Error("Capture a photo or video first.");
+      if (!workspace || !activeChild || draftMedia.length === 0) {
+        throw new Error("Capture at least one photo or video first.");
+      }
 
+      const coverMedia = draftMedia[0];
       const safeTitle =
         title.trim().length >= 2
           ? title.trim()
-          : assetType === "image"
+          : coverMedia.type === "image"
             ? `${activeChild.firstName} memory`
             : `${activeChild.firstName} video memory`;
       const safeNote =
@@ -472,10 +698,15 @@ export default function CaptureScreen() {
         childId: activeChild.id,
         title: safeTitle,
         note: safeNote,
-        mediaType: assetType,
-        mediaUri: assetUri,
-        mediaMimeType: assetMimeType,
-        voiceNoteUri: voiceNoteUri ?? undefined,
+        media: draftMedia.map((item) => ({
+          uri: item.uri,
+          type: item.type,
+          mimeType: item.mimeType
+        })),
+        voiceNotes: voiceNotes.map((voiceNote) => ({
+          uri: voiceNote.uri,
+          durationMs: voiceNote.durationMs
+        })),
         tags,
         capturedAt: new Date().toISOString()
       });
@@ -508,8 +739,6 @@ export default function CaptureScreen() {
       );
     }
   });
-
-  // ---- Loading / error states ----
 
   if (workspaceLoading) {
     return (
@@ -656,16 +885,14 @@ export default function CaptureScreen() {
     );
   }
 
-  // ---- Main camera UI ----
   return (
     <View style={{ flex: 1, backgroundColor: T.night }}>
-      {/* Camera / Preview layer — fills the entire screen */}
       <View style={{ flex: 1 }}>
-        {assetUri ? (
+        {showDraftReview && selectedMedia ? (
           <>
-            {assetType === "image" ? (
+            {selectedMedia.type === "image" ? (
               <Image
-                source={{ uri: assetUri }}
+                source={{ uri: selectedMedia.uri }}
                 resizeMode="cover"
                 style={{ width: "100%", height: "100%" }}
               />
@@ -680,26 +907,26 @@ export default function CaptureScreen() {
 
             <LinearGradient
               colors={[
-                "rgba(0,0,0,0.52)",
-                "rgba(0,0,0,0.05)",
-                "rgba(0,0,0,0.88)"
+                "rgba(0,0,0,0.54)",
+                "rgba(0,0,0,0.10)",
+                "rgba(0,0,0,0.94)"
               ]}
               style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }}
             />
 
-            {/* Top header on preview */}
             <View
               style={{
                 position: "absolute",
-                top: insets.top + 8,
+                top: insets.top + 12,
                 left: 16,
                 right: 16,
                 flexDirection: "row",
-                alignItems: "center",
-                justifyContent: "space-between"
+                alignItems: "flex-start",
+                justifyContent: "space-between",
+                gap: 12
               }}
             >
-              <View>
+              <View style={{ flex: 1 }}>
                 <Text
                   style={{
                     fontFamily: "InstrumentSerif_400Regular",
@@ -707,7 +934,7 @@ export default function CaptureScreen() {
                     color: T.cream
                   }}
                 >
-                  Capture
+                  Finish memory
                 </Text>
                 <Text
                   style={{
@@ -717,83 +944,46 @@ export default function CaptureScreen() {
                     marginTop: 2
                   }}
                 >
-                  Review the moment, then add the story behind it.
+                  {draftMedia.length} media item{draftMedia.length === 1 ? "" : "s"} ready
                 </Text>
               </View>
-            </View>
 
-            {/* Retake / Use Photo bar */}
-            <View
-              style={{
-                position: "absolute",
-                top: insets.top + 80,
-                left: 16,
-                right: 16,
-                flexDirection: "row",
-                alignItems: "center",
-                justifyContent: "space-between"
-              }}
-            >
-              <MotiView
-                from={{ opacity: 0, translateX: -16 }}
-                animate={{ opacity: 1, translateX: 0 }}
-                transition={{ type: "timing", duration: 280 }}
-              >
-                <View
-                  style={{
-                    borderWidth: 1,
-                    borderColor: "rgba(255,255,255,0.10)",
-                    backgroundColor: "rgba(0,0,0,0.35)",
-                    paddingHorizontal: 12,
-                    paddingVertical: 8,
-                    borderRadius: 10,
-                    flexDirection: "row",
-                    alignItems: "center",
-                    gap: 6
-                  }}
-                >
-                  <MaterialCommunityIcons
-                    name={assetType === "image" ? "image-check-outline" : "video-check-outline"}
-                    size={14}
-                    color={T.sage}
-                  />
-                  <Text
-                    style={{
-                      fontFamily: "DMSans_400Regular",
-                      fontSize: 11,
-                      color: T.moon
-                    }}
-                  >
-                    {assetType === "image" ? "Photo ready" : "Video ready"}
-                  </Text>
-                </View>
-              </MotiView>
-
-              <MotiView
-                from={{ opacity: 0, translateX: 16 }}
-                animate={{ opacity: 1, translateX: 0 }}
-                transition={{ type: "timing", duration: 280 }}
-                style={{ flexDirection: "row", gap: 8 }}
-              >
+              <View style={{ flexDirection: "row", gap: 8 }}>
                 <Pressable
-                  onPress={clearDraft}
+                  onPress={() => {
+                    setMode("photo");
+                    setShowDraftReview(false);
+                  }}
                   style={{
                     borderWidth: 1,
                     borderColor: "rgba(255,255,255,0.12)",
-                    backgroundColor: "rgba(0,0,0,0.40)",
+                    backgroundColor: "rgba(0,0,0,0.42)",
                     paddingHorizontal: 14,
                     paddingVertical: 10,
-                    borderRadius: 10,
-                    flexDirection: "row",
-                    alignItems: "center",
-                    gap: 6
+                    borderRadius: 10
                   }}
                 >
-                  <MaterialCommunityIcons
-                    name="camera-retake-outline"
-                    size={14}
-                    color={T.blush}
-                  />
+                  <Text
+                    style={{
+                      fontFamily: "DMSans_500Medium",
+                      fontSize: 11,
+                      color: T.cream
+                    }}
+                  >
+                    Add more
+                  </Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => removeDraftMedia(selectedMedia.id)}
+                  style={{
+                    borderWidth: 1,
+                    borderColor: "rgba(255,255,255,0.12)",
+                    backgroundColor: "rgba(0,0,0,0.42)",
+                    paddingHorizontal: 14,
+                    paddingVertical: 10,
+                    borderRadius: 10
+                  }}
+                >
                   <Text
                     style={{
                       fontFamily: "DMSans_500Medium",
@@ -801,15 +991,14 @@ export default function CaptureScreen() {
                       color: T.blush
                     }}
                   >
-                    Retake
+                    Remove
                   </Text>
                 </Pressable>
-              </MotiView>
+              </View>
             </View>
           </>
         ) : (
           <>
-            {/* Camera with pinch-to-zoom */}
             <GestureDetector gesture={pinchGesture}>
               <View style={{ flex: 1 }}>
                 <CameraView
@@ -849,7 +1038,6 @@ export default function CaptureScreen() {
               }}
               pointerEvents="box-none"
             >
-              {/* Top controls */}
               <View
                 style={{ paddingHorizontal: 16, paddingTop: insets.top + 8 }}
                 pointerEvents="box-none"
@@ -923,7 +1111,6 @@ export default function CaptureScreen() {
                   colors={darkPalette}
                 />
 
-                {/* Camera status + mode switcher */}
                 <View
                   style={{
                     marginTop: 12,
@@ -1002,7 +1189,6 @@ export default function CaptureScreen() {
                 </View>
               </View>
 
-              {/* Bottom controls */}
               <View
                 style={{
                   paddingHorizontal: 16,
@@ -1010,7 +1196,63 @@ export default function CaptureScreen() {
                 }}
                 pointerEvents="box-none"
               >
-                {/* Zoom + Timer row */}
+                {draftMedia.length > 0 ? (
+                  <Pressable
+                    onPress={() => setShowDraftReview(true)}
+                    style={{
+                      marginBottom: 16,
+                      borderWidth: 1,
+                      borderColor: "rgba(255,255,255,0.12)",
+                      backgroundColor: "rgba(0,0,0,0.42)",
+                      paddingHorizontal: 14,
+                      paddingVertical: 12,
+                      borderRadius: 14,
+                      flexDirection: "row",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      gap: 12
+                    }}
+                  >
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 10, flex: 1 }}>
+                      <MaterialCommunityIcons
+                        name="image-multiple-outline"
+                        size={18}
+                        color={T.cream}
+                      />
+                      <View style={{ flex: 1 }}>
+                        <Text
+                          style={{
+                            fontFamily: "DMSans_500Medium",
+                            fontSize: 12,
+                            color: T.cream
+                          }}
+                        >
+                          Draft ready
+                        </Text>
+                        <Text
+                          style={{
+                            marginTop: 2,
+                            fontFamily: "DMSans_400Regular",
+                            fontSize: 10,
+                            color: T.moonDim
+                          }}
+                        >
+                          {draftMedia.length} media item{draftMedia.length === 1 ? "" : "s"} · {voiceNotes.length} voice note{voiceNotes.length === 1 ? "" : "s"}
+                        </Text>
+                      </View>
+                    </View>
+                    <Text
+                      style={{
+                        fontFamily: "DMSans_500Medium",
+                        fontSize: 11,
+                        color: T.sage
+                      }}
+                    >
+                      Review
+                    </Text>
+                  </Pressable>
+                ) : null}
+
                 <View
                   style={{
                     marginBottom: 20,
@@ -1071,7 +1313,6 @@ export default function CaptureScreen() {
                   />
                 </View>
 
-                {/* Shutter + Library + Flip row */}
                 <View
                   style={{
                     flexDirection: "row",
@@ -1099,7 +1340,6 @@ export default function CaptureScreen() {
                     />
                   </Pressable>
 
-                  {/* Shutter button */}
                   <Pressable
                     onPress={() => {
                       void handlePrimaryCapture();
@@ -1152,7 +1392,6 @@ export default function CaptureScreen() {
                   </Pressable>
                 </View>
 
-                {/* Recording / hint row */}
                 <View
                   style={{
                     marginTop: 16,
@@ -1208,7 +1447,6 @@ export default function CaptureScreen() {
           </>
         )}
 
-        {/* Countdown overlay */}
         {countdownSeconds !== null ? (
           <View
             style={{
@@ -1251,7 +1489,6 @@ export default function CaptureScreen() {
           </View>
         ) : null}
 
-        {/* Shutter flash overlay */}
         {showShutterFlash ? (
           <MotiView
             from={{ opacity: 0.9 }}
@@ -1268,7 +1505,6 @@ export default function CaptureScreen() {
           />
         ) : null}
 
-        {/* Upload progress overlay */}
         {saveMutation.isPending ? (
           <View
             style={{
@@ -1327,8 +1563,7 @@ export default function CaptureScreen() {
         ) : null}
       </View>
 
-      {/* Bottom form sheet when asset captured */}
-      {assetUri ? (
+      {showDraftReview && draftMedia.length > 0 ? (
         <KeyboardAvoidingView
           behavior={Platform.OS === "ios" ? "padding" : undefined}
           style={{ position: "absolute", bottom: 0, left: 0, right: 0 }}
@@ -1336,18 +1571,23 @@ export default function CaptureScreen() {
         >
           <View
             style={{
-              maxHeight: "48%",
+              height: composerHeight,
+              borderTopLeftRadius: 28,
+              borderTopRightRadius: 28,
               borderWidth: 1,
               borderColor: S.border,
               backgroundColor: S.surface,
-              paddingHorizontal: 16,
-              paddingTop: 16
+              overflow: "hidden"
             }}
           >
             <ScrollView
               keyboardShouldPersistTaps="handled"
               contentInsetAdjustmentBehavior="automatic"
-              contentContainerStyle={{ paddingBottom: 20 }}
+              contentContainerStyle={{
+                paddingHorizontal: 16,
+                paddingTop: 16,
+                paddingBottom: insets.bottom + 20
+              }}
               showsVerticalScrollIndicator={false}
             >
               <View
@@ -1364,10 +1604,11 @@ export default function CaptureScreen() {
                 style={{
                   flexDirection: "row",
                   alignItems: "center",
-                  justifyContent: "space-between"
+                  justifyContent: "space-between",
+                  gap: 12
                 }}
               >
-                <View>
+                <View style={{ flex: 1 }}>
                   <Text
                     style={{
                       fontFamily: "InstrumentSerif_400Regular",
@@ -1404,10 +1645,185 @@ export default function CaptureScreen() {
                       color: S.text
                     }}
                   >
-                    Remove
+                    Clear all
                   </Text>
                 </Pressable>
               </View>
+
+              <View
+                style={{
+                  marginTop: 16,
+                  flexDirection: "row",
+                  gap: 8
+                }}
+              >
+                <Pressable
+                  onPress={() => {
+                    setMode("photo");
+                    setShowDraftReview(false);
+                  }}
+                  style={{
+                    flex: 1,
+                    borderWidth: 1,
+                    borderColor: S.border,
+                    backgroundColor: S.surfaceSecondary,
+                    paddingVertical: 11
+                  }}
+                >
+                  <Text
+                    style={{
+                      textAlign: "center",
+                      fontFamily: "DMSans_400Regular",
+                      fontSize: 12,
+                      color: S.text
+                    }}
+                  >
+                    Take photo
+                  </Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => {
+                    setMode("video");
+                    setShowDraftReview(false);
+                  }}
+                  style={{
+                    flex: 1,
+                    borderWidth: 1,
+                    borderColor: S.border,
+                    backgroundColor: S.surfaceSecondary,
+                    paddingVertical: 11
+                  }}
+                >
+                  <Text
+                    style={{
+                      textAlign: "center",
+                      fontFamily: "DMSans_400Regular",
+                      fontSize: 12,
+                      color: S.text
+                    }}
+                  >
+                    Record video
+                  </Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => {
+                    void pickFromLibrary();
+                  }}
+                  style={{
+                    flex: 1,
+                    borderWidth: 1,
+                    borderColor: S.border,
+                    backgroundColor: S.surfaceSecondary,
+                    paddingVertical: 11
+                  }}
+                >
+                  <Text
+                    style={{
+                      textAlign: "center",
+                      fontFamily: "DMSans_400Regular",
+                      fontSize: 12,
+                      color: S.text
+                    }}
+                  >
+                    Library
+                  </Text>
+                </Pressable>
+              </View>
+
+              <Text
+                style={{
+                  fontFamily: "DMSans_400Regular",
+                  fontSize: 10,
+                  color: S.textMuted,
+                  textTransform: "uppercase",
+                  letterSpacing: 1.2,
+                  marginTop: 16,
+                  marginBottom: 8
+                }}
+              >
+                Media
+              </Text>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={{ gap: 10, paddingRight: 8 }}
+              >
+                {draftMedia.map((item, index) => {
+                  const active = item.id === selectedMedia?.id;
+
+                  return (
+                    <Pressable
+                      key={item.id}
+                      onPress={() => setSelectedMediaId(item.id)}
+                      style={{
+                        width: 92,
+                        gap: 6
+                      }}
+                    >
+                      <View
+                        style={{
+                          height: 110,
+                          overflow: "hidden",
+                          borderWidth: 2,
+                          borderColor: active ? S.brand : S.border,
+                          backgroundColor: S.surfaceSecondary
+                        }}
+                      >
+                        {item.type === "image" ? (
+                          <Image
+                            source={{ uri: item.uri }}
+                            resizeMode="cover"
+                            style={{ width: "100%", height: "100%" }}
+                          />
+                        ) : (
+                          <View
+                            style={{
+                              flex: 1,
+                              alignItems: "center",
+                              justifyContent: "center",
+                              backgroundColor: S.surfaceSecondary
+                            }}
+                          >
+                            <MaterialCommunityIcons
+                              name="video-outline"
+                              size={24}
+                              color={S.text}
+                            />
+                          </View>
+                        )}
+                        <Pressable
+                          onPress={() => removeDraftMedia(item.id)}
+                          style={{
+                            position: "absolute",
+                            top: 6,
+                            right: 6,
+                            width: 24,
+                            height: 24,
+                            alignItems: "center",
+                            justifyContent: "center",
+                            backgroundColor: "rgba(0,0,0,0.62)"
+                          }}
+                        >
+                          <MaterialCommunityIcons
+                            name="close"
+                            size={14}
+                            color="#FFFFFF"
+                          />
+                        </Pressable>
+                      </View>
+                      <Text
+                        style={{
+                          fontFamily: "DMSans_400Regular",
+                          fontSize: 11,
+                          color: active ? S.brand : S.textMuted
+                        }}
+                      >
+                        {item.type === "image" ? "Photo" : "Video"} {index + 1}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </ScrollView>
 
               <Text
                 style={{
@@ -1513,7 +1929,7 @@ export default function CaptureScreen() {
                   marginBottom: 6
                 }}
               >
-                Voice note
+                Voice notes
               </Text>
               <View
                 style={{
@@ -1521,7 +1937,7 @@ export default function CaptureScreen() {
                   borderColor: S.border,
                   backgroundColor: S.surfaceSecondary,
                   padding: 12,
-                  gap: 10
+                  gap: 12
                 }}
               >
                 <View
@@ -1535,8 +1951,8 @@ export default function CaptureScreen() {
                   <View style={{ flexDirection: "row", alignItems: "center", gap: 10, flex: 1 }}>
                     <View
                       style={{
-                        width: 36,
-                        height: 36,
+                        width: 42,
+                        height: 42,
                         alignItems: "center",
                         justifyContent: "center",
                         backgroundColor: isVoiceNoteRecording
@@ -1546,7 +1962,7 @@ export default function CaptureScreen() {
                     >
                       <MaterialCommunityIcons
                         name={isVoiceNoteRecording ? "microphone" : "microphone-outline"}
-                        size={18}
+                        size={20}
                         color={isVoiceNoteRecording ? S.danger : S.brand}
                       />
                     </View>
@@ -1560,9 +1976,9 @@ export default function CaptureScreen() {
                       >
                         {isVoiceNoteRecording
                           ? "Recording voice note..."
-                          : voiceNoteUri
-                            ? "Voice note attached"
-                            : "Add a voice note"}
+                          : voiceNotes.length > 0
+                            ? `${voiceNotes.length} voice note${voiceNotes.length === 1 ? "" : "s"} added`
+                            : "Add voice notes"}
                       </Text>
                       <Text
                         style={{
@@ -1573,10 +1989,8 @@ export default function CaptureScreen() {
                         }}
                       >
                         {isVoiceNoteRecording
-                          ? `${Math.max(1, Math.round(voiceRecorderState.durationMillis / 1000))}s`
-                          : voiceNoteUri
-                            ? "Play it back or replace it before saving."
-                            : "Capture a quick spoken memory with this moment."}
+                          ? formatDurationMs(voiceRecorderState.durationMillis ?? null)
+                          : "Record quick spoken context and keep as many as you need."}
                       </Text>
                     </View>
                   </View>
@@ -1601,63 +2015,43 @@ export default function CaptureScreen() {
                         color: "#FFFFFF"
                       }}
                     >
-                      {isVoiceNoteRecording
-                        ? "Stop"
-                        : voiceNoteUri
-                          ? "Replace"
-                          : "Record"}
+                      {isVoiceNoteRecording ? "Stop" : "Record"}
                     </Text>
                   </Pressable>
                 </View>
 
-                {voiceNoteUri ? (
-                  <View style={{ flexDirection: "row", gap: 8 }}>
-                    <Pressable
-                      onPress={toggleVoicePreview}
-                      style={{
-                        flex: 1,
-                        borderWidth: 1,
-                        borderColor: S.border,
-                        paddingVertical: 11,
-                        backgroundColor: S.surface
-                      }}
-                    >
-                      <Text
-                        style={{
-                          textAlign: "center",
-                          fontFamily: "DMSans_400Regular",
-                          fontSize: 12,
-                          color: S.text
-                        }}
-                      >
-                        {voicePreviewPlayer.playing
-                          ? "Pause playback"
-                          : "Play voice note"}
-                      </Text>
-                    </Pressable>
-                    <Pressable
-                      onPress={() => {
-                        voicePreviewPlayer.pause();
-                        setVoiceNoteUri(null);
-                      }}
-                      style={{
-                        borderWidth: 1,
-                        borderColor: S.border,
-                        paddingHorizontal: 14,
-                        justifyContent: "center",
-                        backgroundColor: S.surface
-                      }}
-                    >
-                      <Text
-                        style={{
-                          fontFamily: "DMSans_400Regular",
-                          fontSize: 12,
-                          color: S.text
-                        }}
-                      >
-                        Remove
-                      </Text>
-                    </Pressable>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+                  <RecordingWave
+                    active={isVoiceNoteRecording}
+                    accent={isVoiceNoteRecording ? S.danger : S.brand}
+                  />
+                  <Text
+                    style={{
+                      fontFamily: "DMSans_400Regular",
+                      fontSize: 11,
+                      color: S.textMuted
+                    }}
+                  >
+                    {isVoiceNoteRecording
+                      ? "Live waveform while recording"
+                      : "Tap record to capture a spoken moment"}
+                  </Text>
+                </View>
+
+                {voiceNotes.length > 0 ? (
+                  <View style={{ gap: 10 }}>
+                    {voiceNotes.map((voiceNote) => (
+                      <VoiceNoteRow
+                        key={voiceNote.id}
+                        note={voiceNote}
+                        colors={S}
+                        onRemove={() =>
+                          setVoiceNotes((current) =>
+                            current.filter((item) => item.id !== voiceNote.id)
+                          )
+                        }
+                      />
+                    ))}
                   </View>
                 ) : null}
               </View>
@@ -1665,13 +2059,13 @@ export default function CaptureScreen() {
               {incompleteMilestones.length > 0 ? (
                 <View style={{ marginTop: 12, gap: 8 }}>
                   <Text
-                      style={{
-                        fontFamily: "DMSans_400Regular",
-                        fontSize: 10,
-                        color: S.textMuted,
-                        textTransform: "uppercase",
-                        letterSpacing: 1.2
-                      }}
+                    style={{
+                      fontFamily: "DMSans_400Regular",
+                      fontSize: 10,
+                      color: S.textMuted,
+                      textTransform: "uppercase",
+                      letterSpacing: 1.2
+                    }}
                   >
                     Link milestone
                   </Text>

@@ -20,7 +20,7 @@ export default function SignInScreen() {
     try {
       setLoading(true);
       await signIn(email.trim(), password);
-      router.replace("/");
+      router.replace("/(tabs)");
     } catch (error) {
       Alert.alert("Sign-in failed", error instanceof Error ? error.message : "Unknown error");
     } finally {
