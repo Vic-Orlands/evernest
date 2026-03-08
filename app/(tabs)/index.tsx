@@ -24,7 +24,7 @@ import { useProfile } from "@/hooks/use-profile";
 import { useMemoryRealtime } from "@/hooks/use-memory-realtime";
 import { useAppTheme } from "@/hooks/use-app-theme";
 import { queryKeys } from "@/lib/query-keys";
-import { listMemories, listOnThisDay } from "@/lib/repositories";
+import { listMemories, listOnThisDay, listUserNotifications } from "@/lib/repositories";
 import { AppTheme } from "@/lib/theme";
 import { MemoryItem } from "@/lib/types";
 import { listMilestones } from "@/lib/workspace";
@@ -262,6 +262,12 @@ export default function HomeScreen() {
     queryFn: async () => listMilestones(activeChild!.id)
   });
 
+  const notificationsQuery = useQuery({
+    queryKey: workspace ? queryKeys.notifications(workspace.family.id) : ["notifications", "guest"],
+    enabled: Boolean(workspace),
+    queryFn: async () => listUserNotifications(workspace!.family.id)
+  });
+
   const allMemories = memoriesQuery.data ?? [];
 
   const filteredMemories = useMemo(() => {
@@ -314,6 +320,11 @@ export default function HomeScreen() {
 
     return Object.values(grouped);
   }, [filteredMemories]);
+
+  const unreadNotificationsCount = useMemo(
+    () => (notificationsQuery.data ?? []).filter((item) => !item.readAt).length,
+    [notificationsQuery.data]
+  );
 
   const refreshAll = async () => {
     await refetchWorkspace();
@@ -441,6 +452,42 @@ export default function HomeScreen() {
               onPress={() => router.push("/(tabs)/settings")}
             />
           </View>
+          <Pressable
+            onPress={() => router.push("/notifications" as never)}
+            style={{
+              marginTop: 12,
+              alignSelf: "flex-start",
+              borderWidth: 1,
+              borderColor: unreadNotificationsCount > 0 ? colors.brand : colors.border,
+              backgroundColor: unreadNotificationsCount > 0 ? colors.brandBackground : colors.surface,
+              paddingHorizontal: 14,
+              paddingVertical: 10,
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 8
+            }}
+          >
+            <MaterialCommunityIcons name="bell-outline" size={16} color={unreadNotificationsCount > 0 ? colors.brand : colors.textMuted} />
+            <Text style={{ fontFamily: "DMSans_500Medium", fontSize: 12, color: colors.text }}>
+              Inbox
+            </Text>
+            {unreadNotificationsCount > 0 ? (
+              <View
+                style={{
+                  minWidth: 20,
+                  height: 20,
+                  borderRadius: 999,
+                  alignItems: "center",
+                  justifyContent: "center",
+                  backgroundColor: colors.brand
+                }}
+              >
+                <Text style={{ fontFamily: "DMSans_500Medium", fontSize: 10, color: "#FFFFFF" }}>
+                  {unreadNotificationsCount > 9 ? "9+" : unreadNotificationsCount}
+                </Text>
+              </View>
+            ) : null}
+          </Pressable>
         </MotiView>
 
         <View style={{ flexDirection: "row", gap: 12 }}>

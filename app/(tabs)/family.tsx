@@ -247,9 +247,12 @@ export default function FamilyScreen() {
   });
 
   const handleNudge = async (targetUserId: string) => {
+    if (!workspace) {
+      return;
+    }
+
     try {
-      const senderName = user?.name?.split(" ")[0] ?? "Someone";
-      await sendNudge(targetUserId, senderName);
+      await sendNudge(targetUserId, workspace.family.id);
       Alert.alert("Nudge sent", "They’ll get a reminder to capture a memory today.");
     } catch {
       Alert.alert("Could not send nudge", "Please try again later.");

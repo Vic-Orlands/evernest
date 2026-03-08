@@ -1,6 +1,12 @@
 // deno-lint-ignore-file no-explicit-any
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import {
+  insertUserNotifications,
+  json,
+  listFamilyRecipients,
+  sendExpoPushMessages
+} from "../_shared/push.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
@@ -8,13 +14,6 @@ const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY") ?? "";
 const RESEND_FROM = Deno.env.get("RESEND_FROM") ?? "EverNest <noreply@evernest.app>";
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
-
-function json(status: number, body: Record<string, unknown>) {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { "Content-Type": "application/json" }
-  });
-}
 
 serve(async () => {
   if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY || !RESEND_API_KEY) {
@@ -89,6 +88,46 @@ serve(async () => {
         action: "capsule_sent",
         metadata: { capsuleId: capsule.id }
       });
+      const recipients = await listFamilyRecipients(supabase, {
+        familyId: capsule.family_id,
+        preference: "activity"
+      });
+      await insertUserNotifications(
+        supabase,
+        recipients.map((recipient) => ({
+          userId: recipient.userId,
+          familyId: capsule.family_id,
+          childId: null,
+          notificationType: "capsule_sent",
+          title: "Time capsule delivered",
+          body: "A scheduled EverNest capsule has just been delivered.",
+          url: "/(tabs)/capsules",
+          metadata: {
+            capsuleId: capsule.id
+          }
+        }))
+      );
+      const pushMessages = recipients
+        .filter((recipient) => !recipient.quietHoursActive)
+        .flatMap((recipient) =>
+          recipient.tokens.map((token) => ({
+            to: token,
+            title: "Time capsule delivered",
+            body: "A scheduled EverNest capsule has just been delivered.",
+            categoryId: "inbox_action",
+            channelId: "family-activity",
+            sound: "default" as const,
+            data: {
+              type: "capsule_sent",
+              familyId: capsule.family_id,
+              capsuleId: capsule.id,
+              url: "/(tabs)/capsules"
+            }
+          }))
+        );
+      if (pushMessages.length > 0) {
+        await sendExpoPushMessages(supabase, pushMessages);
+      }
       processed += 1;
     }
   }

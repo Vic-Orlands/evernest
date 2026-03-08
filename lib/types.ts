@@ -160,6 +160,22 @@ export type ReminderRule = {
   hour: number;
   minute: number;
   enabled: boolean;
+  activityEnabled: boolean;
+  nudgesEnabled: boolean;
+  onThisDayEnabled: boolean;
+  childId: string | null;
+  quietHoursStartHour: number | null;
+  quietHoursEndHour: number | null;
+};
+
+export type UserNotification = {
+  id: string;
+  notificationType: string;
+  title: string;
+  body: string;
+  url: string | null;
+  readAt: string | null;
+  createdAt: string;
 };
 
 export type ExportJob = {

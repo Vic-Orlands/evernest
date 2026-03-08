@@ -5,14 +5,21 @@ Run these SQL files in Supabase SQL editor (in order):
 1. `supabase/sql/001_init.sql`
 2. `supabase/sql/002_security_and_collab.sql`
 3. `supabase/sql/003_exports_storage.sql`
+4. `supabase/sql/004_profiles_family_read.sql`
+5. `supabase/sql/005_families_owner_read.sql`
+6. `supabase/sql/006_profile_appearance.sql`
+7. `supabase/sql/007_notifications.sql`
+8. `supabase/sql/008_notification_inbox.sql`
 
 ## 2. Edge functions
 Deploy:
 1. `create-invite`
 2. `accept-invite`
 3. `create-checkout-link`
-4. `send-capsule-emails`
-5. `process-exports`
+4. `send-notification-event`
+5. `dispatch-reminders`
+6. `send-capsule-emails`
+7. `process-exports`
 
 ## 3. Function env secrets
 Set these values in Supabase secrets:
@@ -31,6 +38,7 @@ Set these values in Supabase secrets:
 ## 4. Cron schedules
 Set scheduled execution for:
 - `send-capsule-emails` (recommended hourly)
+- `dispatch-reminders` (recommended every 15 mins)
 - `process-exports` (recommended every 15-30 mins)
 
 ## 5. Mobile env

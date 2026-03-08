@@ -47,12 +47,17 @@ pnpm start
 - `supabase/sql/003_exports_storage.sql`
 - `supabase/sql/004_profiles_family_read.sql`
 - `supabase/sql/005_families_owner_read.sql`
+- `supabase/sql/006_profile_appearance.sql`
+- `supabase/sql/007_notifications.sql`
+- `supabase/sql/008_notification_inbox.sql`
 
 2. Deploy edge functions:
 - `create-invite`
 - `accept-invite`
 - `create-checkout-link`
 - `delete-account`
+- `send-notification-event`
+- `dispatch-reminders`
 - `send-capsule-emails`
 - `process-exports`
 
@@ -70,6 +75,7 @@ pnpm start
 - `DODO_CHECKOUT_ENDPOINT`
 
 4. Schedule `send-capsule-emails` and `process-exports` with Supabase Cron.
+   Also schedule `dispatch-reminders` every 15 minutes.
 
 ## Security Defaults
 

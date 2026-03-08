@@ -9,5 +9,6 @@ export const queryKeys = {
   familyMembers: (familyId: string) => ["family-members", familyId] as const,
   familyActivity: (familyId: string) => ["family-activity", familyId] as const,
   reminderRule: (familyId: string) => ["reminder-rule", familyId] as const,
-  exports: (familyId: string) => ["exports", familyId] as const
+  exports: (familyId: string) => ["exports", familyId] as const,
+  notifications: (familyId: string) => ["notifications", familyId] as const
 };

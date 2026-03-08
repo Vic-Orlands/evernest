@@ -1,8 +1,9 @@
 import { supabase } from "@/lib/supabase";
 import { createCapsuleSchema, createMemorySchema, commentSchema, reactionSchema, reminderRuleSchema } from "@/lib/validation";
-import { Capsule, ExportJob, MemoryAsset, MemoryComment, MemoryDetails, MemoryItem, MemoryReaction, MemoryVoiceNote, ReminderRule } from "@/lib/types";
+import { Capsule, ExportJob, MemoryAsset, MemoryComment, MemoryDetails, MemoryItem, MemoryReaction, MemoryVoiceNote, ReminderRule, UserNotification } from "@/lib/types";
 import { requireCurrentUserId } from "@/lib/current-user";
 import { toSupabaseSetupError } from "@/lib/supabase-setup";
+import { notifyFamilyNewComment, notifyFamilyNewMemory, notifyFamilyNewReaction } from "@/lib/notifications";
 import * as FileSystem from "expo-file-system/legacy";
 import { Buffer } from "buffer";
 
@@ -409,12 +410,14 @@ export async function createMemory(input: CreateMemoryInput): Promise<string> {
     }
   }
 
+  void notifyFamilyNewMemory(memoryId).catch((error) => {
+    console.warn("Memory notification failed:", error);
+  });
+
   return memoryId;
 }
 
 export async function deleteMemory(memoryId: string): Promise<void> {
-  const userId = await requireCurrentUserId();
-
   // RLS will ensure they have write access via the family
   const { error: deleteError } = await supabase
     .from("memories")
@@ -439,6 +442,10 @@ export async function addComment(memoryId: string, body: string): Promise<void> 
   if (insertError) {
     throw toSupabaseSetupError(new Error(`Could not add comment: ${insertError.message}`));
   }
+
+  void notifyFamilyNewComment(memoryId).catch((error) => {
+    console.warn("Comment notification failed:", error);
+  });
 }
 
 export async function setReaction(memoryId: string, emoji: string): Promise<void> {
@@ -457,6 +464,10 @@ export async function setReaction(memoryId: string, emoji: string): Promise<void
   if (upsertError) {
     throw toSupabaseSetupError(new Error(`Could not set reaction: ${upsertError.message}`));
   }
+
+  void notifyFamilyNewReaction(memoryId, payload.emoji).catch((error) => {
+    console.warn("Reaction notification failed:", error);
+  });
 }
 
 export async function listOnThisDay(familyId: string, childId: string): Promise<MemoryItem[]> {
@@ -533,7 +544,7 @@ export async function getReminderRule(familyId: string): Promise<ReminderRule | 
 
   const { data, error } = await supabase
     .from("reminder_rules")
-    .select("id, user_id, family_id, timezone, hour, minute, enabled")
+    .select("id, user_id, family_id, child_id, timezone, hour, minute, enabled, activity_enabled, nudges_enabled, on_this_day_enabled, quiet_hours_start_hour, quiet_hours_end_hour")
     .eq("family_id", familyId)
     .eq("user_id", userId)
     .maybeSingle();
@@ -548,19 +559,31 @@ export async function getReminderRule(familyId: string): Promise<ReminderRule | 
     id: data.id,
     userId: data.user_id,
     familyId: data.family_id,
+    childId: data.child_id ?? null,
     timezone: data.timezone,
     hour: data.hour,
     minute: data.minute,
-    enabled: data.enabled
+    enabled: data.enabled,
+    activityEnabled: data.activity_enabled ?? true,
+    nudgesEnabled: data.nudges_enabled ?? true,
+    onThisDayEnabled: data.on_this_day_enabled ?? true,
+    quietHoursStartHour: data.quiet_hours_start_hour ?? null,
+    quietHoursEndHour: data.quiet_hours_end_hour ?? null
   };
 }
 
 export async function saveReminderRule(params: {
   familyId: string;
+  childId: string | null;
   hour: number;
   minute: number;
   timezone: string;
   enabled: boolean;
+  activityEnabled: boolean;
+  nudgesEnabled: boolean;
+  onThisDayEnabled: boolean;
+  quietHoursStartHour: number | null;
+  quietHoursEndHour: number | null;
 }): Promise<void> {
   const payload = reminderRuleSchema.parse(params);
   const userId = await requireCurrentUserId();
@@ -569,16 +592,73 @@ export async function saveReminderRule(params: {
     {
       user_id: userId,
       family_id: payload.familyId,
+      child_id: payload.childId,
       timezone: payload.timezone,
       hour: payload.hour,
       minute: payload.minute,
-      enabled: payload.enabled
+      enabled: payload.enabled,
+      activity_enabled: payload.activityEnabled,
+      nudges_enabled: payload.nudgesEnabled,
+      on_this_day_enabled: payload.onThisDayEnabled,
+      quiet_hours_start_hour: payload.quietHoursStartHour,
+      quiet_hours_end_hour: payload.quietHoursEndHour
     },
     { onConflict: "user_id,family_id" }
   );
 
   if (error) {
     throw toSupabaseSetupError(new Error(`Could not save reminder rule: ${error.message}`));
+  }
+}
+
+export async function listUserNotifications(familyId: string): Promise<UserNotification[]> {
+  const userId = await requireCurrentUserId();
+  const { data, error } = await supabase
+    .from("user_notifications")
+    .select("id, notification_type, title, body, url, read_at, created_at")
+    .eq("family_id", familyId)
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false })
+    .limit(100);
+
+  if (error) {
+    throw toSupabaseSetupError(new Error(`Could not load notifications: ${error.message}`));
+  }
+
+  return (data ?? []).map((row) => ({
+    id: row.id,
+    notificationType: row.notification_type,
+    title: row.title,
+    body: row.body,
+    url: row.url,
+    readAt: row.read_at,
+    createdAt: row.created_at
+  }));
+}
+
+export async function markNotificationRead(notificationId: string): Promise<void> {
+  const { error } = await supabase
+    .from("user_notifications")
+    .update({ read_at: new Date().toISOString() })
+    .eq("id", notificationId)
+    .is("read_at", null);
+
+  if (error) {
+    throw toSupabaseSetupError(new Error(`Could not mark notification as read: ${error.message}`));
+  }
+}
+
+export async function markAllNotificationsRead(familyId: string): Promise<void> {
+  const userId = await requireCurrentUserId();
+  const { error } = await supabase
+    .from("user_notifications")
+    .update({ read_at: new Date().toISOString() })
+    .eq("family_id", familyId)
+    .eq("user_id", userId)
+    .is("read_at", null);
+
+  if (error) {
+    throw toSupabaseSetupError(new Error(`Could not mark notifications as read: ${error.message}`));
   }
 }
 

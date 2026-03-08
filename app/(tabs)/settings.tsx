@@ -8,6 +8,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { MotiView } from "moti";
 import { ProfileAvatar } from "@/components/profile-avatar";
+import { ChildSwitcher } from "@/components/child-switcher";
 import { useReminders } from "@/hooks/use-reminders";
 import { useWorkspace } from "@/hooks/use-workspace";
 import { useAuth } from "@/hooks/use-auth";
@@ -235,10 +236,10 @@ function ToggleRow({
 export default function SettingsScreen() {
   const queryClient = useQueryClient();
   const { colors, themeName, setThemeName } = useAppTheme();
-  const { enabled, supported, scheduleDailyReminder, scheduleCatchUpReminder } = useReminders();
+  const { enabled, supported, requestAccess, refreshPermissionStatus } = useReminders();
   const { user, refresh } = useAuth();
   const { profile, refetch: refetchProfile } = useProfile();
-  const { workspace, workspaceLoading, workspaceError, refetchWorkspace } = useWorkspace();
+  const { workspace, workspaceLoading, workspaceError, refetchWorkspace, activeChild, setActiveChildId } = useWorkspace();
 
   const [editingProfile, setEditingProfile] = useState(false);
   const [fullName, setFullName] = useState("");
@@ -252,6 +253,10 @@ export default function SettingsScreen() {
   const [dailyRemindersOn, setDailyRemindersOn] = useState(true);
   const [familyActivityOn, setFamilyActivityOn] = useState(true);
   const [nudgesOn, setNudgesOn] = useState(true);
+  const [onThisDayOn, setOnThisDayOn] = useState(true);
+  const [focusedChildOnly, setFocusedChildOnly] = useState(false);
+  const [quietHoursStart, setQuietHoursStart] = useState("");
+  const [quietHoursEnd, setQuietHoursEnd] = useState("");
   const [deleteConfirmation, setDeleteConfirmation] = useState("");
   const [showSignOutModal, setShowSignOutModal] = useState(false);
 
@@ -277,7 +282,25 @@ export default function SettingsScreen() {
     if (!reminderQuery.data) return;
     setHour(String(reminderQuery.data.hour));
     setMinute(String(reminderQuery.data.minute));
-  }, [reminderQuery.data]);
+    setDailyRemindersOn(reminderQuery.data.enabled);
+    setFamilyActivityOn(reminderQuery.data.activityEnabled);
+    setNudgesOn(reminderQuery.data.nudgesEnabled);
+    setOnThisDayOn(reminderQuery.data.onThisDayEnabled);
+    setFocusedChildOnly(Boolean(reminderQuery.data.childId));
+    setQuietHoursStart(
+      reminderQuery.data.quietHoursStartHour === null
+        ? ""
+        : String(reminderQuery.data.quietHoursStartHour).padStart(2, "0")
+    );
+    setQuietHoursEnd(
+      reminderQuery.data.quietHoursEndHour === null
+        ? ""
+        : String(reminderQuery.data.quietHoursEndHour).padStart(2, "0")
+    );
+    if (reminderQuery.data.childId) {
+      setActiveChildId(reminderQuery.data.childId);
+    }
+  }, [reminderQuery.data, setActiveChildId]);
 
   const syncProfileQueries = async () => {
     if (user) {
@@ -374,20 +397,47 @@ export default function SettingsScreen() {
       const parsedHour = Number.parseInt(hour, 10);
       const parsedMinute = Number.parseInt(minute, 10);
       if (Number.isNaN(parsedHour) || Number.isNaN(parsedMinute)) throw new Error("Hour and minute must be numbers");
+      if (parsedHour < 0 || parsedHour > 23 || parsedMinute < 0 || parsedMinute > 59) {
+        throw new Error("Hour must be 0-23 and minute must be 0-59.");
+      }
+      const parsedQuietStart =
+        quietHoursStart.trim().length === 0 ? null : Number.parseInt(quietHoursStart, 10);
+      const parsedQuietEnd =
+        quietHoursEnd.trim().length === 0 ? null : Number.parseInt(quietHoursEnd, 10);
+      if (
+        (parsedQuietStart !== null && (Number.isNaN(parsedQuietStart) || parsedQuietStart < 0 || parsedQuietStart > 23)) ||
+        (parsedQuietEnd !== null && (Number.isNaN(parsedQuietEnd) || parsedQuietEnd < 0 || parsedQuietEnd > 23))
+      ) {
+        throw new Error("Quiet hours must use hours from 0-23.");
+      }
+      if ((parsedQuietStart === null) !== (parsedQuietEnd === null)) {
+        throw new Error("Set both quiet hours start and end, or leave both empty.");
+      }
+      if ((dailyRemindersOn || familyActivityOn || nudgesOn) && supported) {
+        const granted = await requestAccess();
+        if (!granted) {
+          throw new Error("Allow notifications to receive reminders and family activity.");
+        }
+      }
       await saveReminderRule({
         familyId: workspace.family.id,
+        childId: focusedChildOnly ? activeChild?.id ?? null : null,
         hour: parsedHour,
         minute: parsedMinute,
         timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-        enabled: true
+        enabled: dailyRemindersOn,
+        activityEnabled: familyActivityOn,
+        nudgesEnabled: nudgesOn,
+        onThisDayEnabled: onThisDayOn,
+        quietHoursStartHour: parsedQuietStart,
+        quietHoursEndHour: parsedQuietEnd
       });
-      await scheduleDailyReminder(parsedHour, parsedMinute);
-      await scheduleCatchUpReminder();
+      await refreshPermissionStatus();
     },
     onSuccess: async () => {
       if (!workspace) return;
       await queryClient.invalidateQueries({ queryKey: queryKeys.reminderRule(workspace.family.id) });
-      Alert.alert("Reminder saved", "Daily and catch-up notifications are scheduled.");
+      Alert.alert("Notifications saved", "Reminder timing and family notification preferences have been updated.");
     },
     onError: (error) => {
       Alert.alert("Reminder failed", error instanceof Error ? error.message : "Unknown error");
@@ -735,6 +785,41 @@ export default function SettingsScreen() {
             trackTrue={colors.goldBackground}
             thumbColor={colors.gold}
           />
+          <ToggleRow
+            label="On this day"
+            description="Resurface memories from this date in past years."
+            value={onThisDayOn}
+            onValueChange={setOnThisDayOn}
+            disabled={!supported}
+            textColor={primaryText}
+            descriptionColor={mutedText}
+            trackFalse={colors.border}
+            trackTrue={colors.goldBackground}
+            thumbColor={colors.gold}
+          />
+          <ToggleRow
+            label="Focus active child"
+            description="Only remind me based on the child selected below."
+            value={focusedChildOnly}
+            onValueChange={setFocusedChildOnly}
+            disabled={!supported || !workspace || workspace.children.length < 2}
+            textColor={primaryText}
+            descriptionColor={mutedText}
+            trackFalse={colors.border}
+            trackTrue={colors.goldBackground}
+            thumbColor={colors.gold}
+          />
+
+          {workspace && workspace.children.length > 0 ? (
+            <View style={{ marginTop: 12 }}>
+              <ChildSwitcher
+                childProfiles={workspace.children}
+                activeChildId={activeChild?.id ?? workspace.children[0].id}
+                onSelect={setActiveChildId}
+                colors={colors}
+              />
+            </View>
+          ) : null}
 
           <View style={{ marginTop: 12, flexDirection: "row", gap: 8 }}>
             <TextInput
@@ -774,6 +859,55 @@ export default function SettingsScreen() {
               }}
             />
           </View>
+
+          <View style={{ marginTop: 12, flexDirection: "row", gap: 8 }}>
+            <TextInput
+              keyboardType="number-pad"
+              value={quietHoursStart}
+              onChangeText={setQuietHoursStart}
+              placeholder="Quiet start"
+              placeholderTextColor={mutedText}
+              style={{
+                flex: 1,
+                borderWidth: 1,
+                borderColor: colors.border,
+                paddingHorizontal: 12,
+                paddingVertical: 10,
+                fontFamily: "DMSans_400Regular",
+                fontSize: 14,
+                color: primaryText,
+                backgroundColor: secondaryBackground
+              }}
+            />
+            <TextInput
+              keyboardType="number-pad"
+              value={quietHoursEnd}
+              onChangeText={setQuietHoursEnd}
+              placeholder="Quiet end"
+              placeholderTextColor={mutedText}
+              style={{
+                flex: 1,
+                borderWidth: 1,
+                borderColor: colors.border,
+                paddingHorizontal: 12,
+                paddingVertical: 10,
+                fontFamily: "DMSans_400Regular",
+                fontSize: 14,
+                color: primaryText,
+                backgroundColor: secondaryBackground
+              }}
+            />
+          </View>
+          <Text
+            style={{
+              marginTop: 8,
+              fontFamily: "DMSans_400Regular",
+              fontSize: 11,
+              color: mutedText
+            }}
+          >
+            Quiet hours use 24-hour format. Leave both empty to disable.
+          </Text>
 
           <PrimaryButton
             label="Save reminder"

@@ -3,6 +3,7 @@ import { supabase } from "@/lib/supabase";
 import { betterAuthClient } from "@/lib/better-auth-client";
 import { buildAuthRedirectUrl } from "@/lib/auth-redirect";
 import { getCurrentUser } from "@/lib/current-user";
+import { unregisterPushToken } from "@/lib/notifications";
 import * as Linking from "expo-linking";
 
 export type AuthUser = {
@@ -68,6 +69,7 @@ export async function signUp(name: string, email: string, password: string): Pro
 
 export async function signOut(): Promise<void> {
   if (isSupabaseAuth) {
+    await unregisterPushToken().catch(() => undefined);
     const { error } = await supabase.auth.signOut();
     if (error) throw error;
     return;

@@ -12,6 +12,7 @@ import { DMSans_400Regular, DMSans_500Medium } from "@expo-google-fonts/dm-sans"
 import { InstrumentSerif_400Regular } from "@expo-google-fonts/instrument-serif";
 import { useEffect, useState } from "react";
 import { AppThemeProvider, useAppTheme } from "@/hooks/use-app-theme";
+import { useNotificationLifecycle } from "@/hooks/use-notification-lifecycle";
 
 const appLaunchStartedAt = Date.now();
 const minimumSplashDuration = 2000;
@@ -35,6 +36,7 @@ const queryClient = new QueryClient({
 
 function RootNavigator() {
   const { colors, ready } = useAppTheme();
+  useNotificationLifecycle();
 
   if (!ready) {
     return null;
@@ -46,6 +48,7 @@ function RootNavigator() {
       <Stack screenOptions={{ headerShown: false }}>
         <Stack.Screen name="(auth)" />
         <Stack.Screen name="(tabs)" />
+        <Stack.Screen name="notifications" options={{ animation: "slide_from_right" }} />
         <Stack.Screen name="personalize" options={{ animation: "fade" }} />
         <Stack.Screen name="avatar" options={{ animation: "slide_from_right" }} />
         <Stack.Screen name="accept-invite" options={{ presentation: "modal" }} />

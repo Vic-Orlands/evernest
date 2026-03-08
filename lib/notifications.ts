@@ -1,200 +1,224 @@
+import Constants from "expo-constants";
 import * as Device from "expo-device";
 import { Platform } from "react-native";
 import { supabase } from "@/lib/supabase";
 import { requireCurrentUserId } from "@/lib/current-user";
 import { getExpoNotifications } from "@/lib/expo-notifications-optional";
-import { toSupabaseSetupError } from "@/lib/supabase-setup";
 
-/**
- * Register the device's Expo push token with Supabase so other family members
- * can send push notifications to this device.
- */
+export const NOTIFICATION_CHANNELS = {
+  reminders: "daily-reminders",
+  activity: "family-activity",
+  nudges: "nudges"
+} as const;
+
+type NotificationEventPayload =
+  | { type: "memory_created"; memoryId: string }
+  | { type: "memory_commented"; memoryId: string }
+  | { type: "memory_reacted"; memoryId: string; emoji: string }
+  | { type: "nudge"; familyId: string; targetUserId: string };
+
+function isPermissionGranted(
+  notifications: NonNullable<ReturnType<typeof getExpoNotifications>>,
+  permissions: Awaited<ReturnType<NonNullable<ReturnType<typeof getExpoNotifications>>["getPermissionsAsync"]>>
+) {
+  return (
+    permissions.granted ||
+    permissions.ios?.status === notifications.IosAuthorizationStatus.PROVISIONAL ||
+    permissions.ios?.status === notifications.IosAuthorizationStatus.EPHEMERAL
+  );
+}
+
+function getProjectId() {
+  return Constants.expoConfig?.extra?.eas?.projectId ?? Constants.easConfig?.projectId;
+}
+
+export async function configureNotificationChannels(): Promise<void> {
+  const notifications = getExpoNotifications();
+  if (!notifications || Platform.OS !== "android") {
+    return;
+  }
+
+  await notifications.setNotificationChannelAsync(NOTIFICATION_CHANNELS.reminders, {
+    name: "Daily reminders",
+    importance: notifications.AndroidImportance.HIGH,
+    vibrationPattern: [0, 200, 200, 200]
+  });
+  await notifications.setNotificationChannelAsync(NOTIFICATION_CHANNELS.activity, {
+    name: "Family activity",
+    importance: notifications.AndroidImportance.HIGH,
+    vibrationPattern: [0, 160, 140, 160]
+  });
+  await notifications.setNotificationChannelAsync(NOTIFICATION_CHANNELS.nudges, {
+    name: "Family nudges",
+    importance: notifications.AndroidImportance.HIGH,
+    vibrationPattern: [0, 250, 120, 250]
+  });
+}
+
+export async function getNotificationPermissionStatus(): Promise<{
+  supported: boolean;
+  granted: boolean;
+}> {
+  const notifications = getExpoNotifications();
+  if (!notifications || !Device.isDevice) {
+    return {
+      supported: Boolean(notifications),
+      granted: false
+    };
+  }
+
+  await configureNotificationChannels();
+  const permissions = await notifications.getPermissionsAsync();
+
+  return {
+    supported: true,
+    granted: isPermissionGranted(notifications, permissions)
+  };
+}
+
+export async function ensureNotificationPermissions(): Promise<boolean> {
+  const notifications = getExpoNotifications();
+  if (!notifications || !Device.isDevice) {
+    return false;
+  }
+
+  await configureNotificationChannels();
+
+  const existingPermissions = await notifications.getPermissionsAsync();
+  if (isPermissionGranted(notifications, existingPermissions)) {
+    await registerPushToken();
+    return true;
+  }
+
+  const requestedPermissions = await notifications.requestPermissionsAsync({
+    ios: {
+      allowAlert: true,
+      allowBadge: true,
+      allowSound: true
+    }
+  });
+  const granted = isPermissionGranted(notifications, requestedPermissions);
+
+  if (granted) {
+    await registerPushToken();
+  }
+
+  return granted;
+}
+
 export async function registerPushToken(): Promise<string | null> {
-    const notifications = getExpoNotifications();
-    if (!notifications || !Device.isDevice) return null;
+  const notifications = getExpoNotifications();
+  if (!notifications || !Device.isDevice) {
+    return null;
+  }
 
-    const { status } = await notifications.getPermissionsAsync();
-    if (status !== "granted") return null;
+  await configureNotificationChannels();
 
-    try {
-        const tokenResult = await notifications.getExpoPushTokenAsync();
-        const token = tokenResult.data;
-        const userId = await requireCurrentUserId();
+  const permissions = await notifications.getPermissionsAsync();
+  if (!isPermissionGranted(notifications, permissions)) {
+    return null;
+  }
 
-        const { error } = await supabase.from("push_tokens").upsert(
-            {
-                user_id: userId,
-                token,
-                platform: Platform.OS
-            },
-            { onConflict: "user_id,token" }
-        );
+  const projectId = getProjectId();
+  if (!projectId) {
+    console.warn("Expo projectId is missing; push registration skipped.");
+    return null;
+  }
 
-        if (error) {
-            console.warn("Could not register push token:", error.message);
-        }
-
-        return token;
-    } catch (err) {
-        console.warn("Push token registration failed:", err);
-        return null;
-    }
-}
-
-/**
- * Remove the current device's push token (e.g. on sign-out).
- */
-export async function unregisterPushToken(): Promise<void> {
-    const notifications = getExpoNotifications();
-    if (!notifications || !Device.isDevice) return;
-
-    try {
-        const tokenResult = await notifications.getExpoPushTokenAsync();
-        const token = tokenResult.data;
-        const userId = await requireCurrentUserId();
-
-        await supabase
-            .from("push_tokens")
-            .delete()
-            .eq("user_id", userId)
-            .eq("token", token);
-    } catch {
-        // Silent fail — token may already be removed
-    }
-}
-
-/**
- * Fetch push tokens for all OTHER family members (not the current user).
- */
-async function getFamilyMemberTokens(familyId: string): Promise<string[]> {
+  try {
+    const token = (
+      await notifications.getExpoPushTokenAsync({
+        projectId
+      })
+    ).data;
     const userId = await requireCurrentUserId();
 
-    const { data: members, error: membersError } = await supabase
-        .from("family_members")
-        .select("user_id")
-        .eq("family_id", familyId)
-        .neq("user_id", userId);
+    const { error } = await supabase.from("push_tokens").upsert(
+      {
+        user_id: userId,
+        token,
+        platform: Platform.OS
+      },
+      { onConflict: "user_id,token" }
+    );
 
-    if (membersError || !members || members.length === 0) return [];
-
-    const memberIds = members.map((m) => m.user_id);
-
-    const { data: tokens, error: tokensError } = await supabase
-        .from("push_tokens")
-        .select("token")
-        .in("user_id", memberIds);
-
-    if (tokensError || !tokens) return [];
-
-    return tokens.map((t) => t.token);
-}
-
-/**
- * Send push notifications to all family members when a new memory is created.
- */
-export async function notifyFamilyNewMemory(
-    familyId: string,
-    creatorName: string,
-    memoryTitle: string
-): Promise<void> {
-    const tokens = await getFamilyMemberTokens(familyId);
-    if (tokens.length === 0) return;
-
-    await sendExpoPushNotifications(tokens, {
-        title: "📸 New memory captured",
-        body: `${creatorName} just saved "${memoryTitle}" to EverNest.`,
-        data: { type: "new_memory", familyId }
-    });
-}
-
-/**
- * Send a "nudge" notification to a specific family member to remind them
- * to capture a memory today.
- */
-export async function sendNudge(
-    targetUserId: string,
-    senderName: string
-): Promise<void> {
-    const { data: tokens, error } = await supabase
-        .from("push_tokens")
-        .select("token")
-        .eq("user_id", targetUserId);
-
-    if (error || !tokens || tokens.length === 0) return;
-
-    const pushTokens = tokens.map((t) => t.token);
-
-    await sendExpoPushNotifications(pushTokens, {
-        title: "💛 You've been nudged!",
-        body: `${senderName} is reminding you to capture a memory today.`,
-        data: { type: "nudge" }
-    });
-}
-
-/**
- * Notify family when a comment is posted on a memory.
- */
-export async function notifyFamilyNewComment(
-    familyId: string,
-    commenterName: string,
-    memoryTitle: string
-): Promise<void> {
-    const tokens = await getFamilyMemberTokens(familyId);
-    if (tokens.length === 0) return;
-
-    await sendExpoPushNotifications(tokens, {
-        title: "💬 New comment",
-        body: `${commenterName} commented on "${memoryTitle}".`,
-        data: { type: "new_comment", familyId }
-    });
-}
-
-/**
- * Notify family when a reaction is added to a memory.
- */
-export async function notifyFamilyNewReaction(
-    familyId: string,
-    reactorName: string,
-    emoji: string,
-    memoryTitle: string
-): Promise<void> {
-    const tokens = await getFamilyMemberTokens(familyId);
-    if (tokens.length === 0) return;
-
-    await sendExpoPushNotifications(tokens, {
-        title: `${emoji} New reaction`,
-        body: `${reactorName} reacted to "${memoryTitle}".`,
-        data: { type: "new_reaction", familyId }
-    });
-}
-
-/**
- * Send Expo push notifications via the Expo push service.
- * Falls back silently on failure.
- */
-async function sendExpoPushNotifications(
-    pushTokens: string[],
-    notification: { title: string; body: string; data?: Record<string, unknown> }
-): Promise<void> {
-    const messages = pushTokens.map((token) => ({
-        to: token,
-        sound: "default" as const,
-        title: notification.title,
-        body: notification.body,
-        data: notification.data ?? {}
-    }));
-
-    try {
-        await fetch("https://exp.host/--/api/v2/push/send", {
-            method: "POST",
-            headers: {
-                Accept: "application/json",
-                "Accept-encoding": "gzip, deflate",
-                "Content-Type": "application/json"
-            },
-            body: JSON.stringify(messages)
-        });
-    } catch (err) {
-        console.warn("Push notification send failed:", err);
+    if (error) {
+      console.warn("Could not register push token:", error.message);
+      return null;
     }
+
+    return token;
+  } catch (error) {
+    console.warn("Push token registration failed:", error);
+    return null;
+  }
+}
+
+export async function unregisterPushToken(): Promise<void> {
+  const notifications = getExpoNotifications();
+  if (!notifications || !Device.isDevice) {
+    return;
+  }
+
+  const projectId = getProjectId();
+  if (!projectId) {
+    return;
+  }
+
+  try {
+    const token = (
+      await notifications.getExpoPushTokenAsync({
+        projectId
+      })
+    ).data;
+    const userId = await requireCurrentUserId();
+
+    await supabase
+      .from("push_tokens")
+      .delete()
+      .eq("user_id", userId)
+      .eq("token", token);
+  } catch {
+    return;
+  }
+}
+
+async function sendNotificationEvent(payload: NotificationEventPayload): Promise<void> {
+  const { error } = await supabase.functions.invoke("send-notification-event", {
+    body: payload
+  });
+
+  if (error) {
+    throw new Error(error.message || "Could not send notification");
+  }
+}
+
+export async function notifyFamilyNewMemory(memoryId: string): Promise<void> {
+  await sendNotificationEvent({
+    type: "memory_created",
+    memoryId
+  });
+}
+
+export async function notifyFamilyNewComment(memoryId: string): Promise<void> {
+  await sendNotificationEvent({
+    type: "memory_commented",
+    memoryId
+  });
+}
+
+export async function notifyFamilyNewReaction(memoryId: string, emoji: string): Promise<void> {
+  await sendNotificationEvent({
+    type: "memory_reacted",
+    memoryId,
+    emoji
+  });
+}
+
+export async function sendNudge(targetUserId: string, familyId: string): Promise<void> {
+  await sendNotificationEvent({
+    type: "nudge",
+    targetUserId,
+    familyId
+  });
 }

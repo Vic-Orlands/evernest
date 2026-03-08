@@ -39,8 +39,14 @@ export const reactionSchema = z.object({
 
 export const reminderRuleSchema = z.object({
   familyId: z.string().uuid(),
+  childId: z.string().uuid().nullable(),
   hour: z.number().int().min(0).max(23),
   minute: z.number().int().min(0).max(59),
   timezone: z.string().trim().min(2).max(64),
-  enabled: z.boolean()
+  enabled: z.boolean(),
+  activityEnabled: z.boolean(),
+  nudgesEnabled: z.boolean(),
+  onThisDayEnabled: z.boolean(),
+  quietHoursStartHour: z.number().int().min(0).max(23).nullable(),
+  quietHoursEndHour: z.number().int().min(0).max(23).nullable()
 });
