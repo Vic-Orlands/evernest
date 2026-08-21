@@ -1,91 +1,86 @@
 # EverNest
 
-EverNest is a secure, collaborative memory app for families to capture daily photo/video moments, attach notes and voice context, collaborate with guardians, and deliver scheduled time capsules in the future.
+EverNest is a private family memory app for capturing everyday moments, collaborating with guardians, and scheduling stories to arrive as future time capsules.
 
-## Current Build Scope
+## Product scope
 
-- Expo SDK 55 + React Native 0.84 + React 19
-- Supabase-first architecture (Auth, Postgres, Storage, Realtime, Edge Functions)
-- Better Auth fallback path documented for Expo
-- Family collaboration invites with token acceptance
-- Daily reminders + catch-up reminders
-- Memory timeline grouped by day, with comments/reactions
-- Milestone templates
-- Capsule scheduling + recipient email delivery pipeline
-- Billing checkout support for Paystack or Dodo (server-side)
+EverNest treats a memory as more than a photo. A family can attach written or voice context, organize moments around children and milestones, invite trusted guardians, and preserve selected memories for future delivery.
 
-## Local App Setup
+- Email-based authentication and profile setup
+- Family workspaces and guardian invitations
+- Photo, video, note, and voice context
+- Daily timeline grouped by date
+- Comments and reactions
+- Child profiles and milestone templates
+- Daily and catch-up reminders
+- In-app and push-notification foundations
+- Scheduled time capsules and recipient email delivery
+- Data export and account-deletion workflows
+- Billing integration foundations
 
-1. Install dependencies
+## Architecture
+
+```mermaid
+flowchart TB
+    APP["Expo and React Native app"] --> AUTH["Supabase Auth"]
+    APP --> DB["Supabase Postgres"]
+    APP --> ST["Private Supabase Storage"]
+    APP --> RT["Realtime updates"]
+    APP --> EF["Edge Functions"]
+    EF --> MAIL["Email delivery"]
+    EF --> PUSH["Push notifications"]
+    EF --> PAY["Payment provider"]
+    CRON["Scheduled jobs"] --> EF
+```
+
+The mobile bundle contains only public client configuration. Privileged operations run in Supabase Edge Functions. Family records and storage objects are scoped through Row Level Security and family-based storage paths.
+
+## Security defaults
+
+- Row Level Security across family-owned data
+- Private media buckets scoped by family identifier
+- Invitation tokens stored as hashes rather than plaintext
+- Service-role and payment secrets restricted to server functions
+- Validation at client and function boundaries
+- Audit events around invitation flows
+- Secure local storage for device-side session material
+
+See [`docs/SECURITY.md`](./docs/SECURITY.md) and [`docs/THREAT_MODEL.md`](./docs/THREAT_MODEL.md) for the detailed boundaries and remaining risks.
+
+## Stack
+
+- Expo, React Native, and TypeScript
+- Expo Router
+- Supabase Auth, PostgreSQL, Storage, Realtime, and Edge Functions
+- TanStack Query
+- NativeWind and Moti
+- Expo notifications, media, audio, secure storage, and sharing APIs
+- Paystack or Dodo billing foundations
+
+## Local development
 
 ```bash
 pnpm install
-```
-
-2. Configure public env in `.env`
-
-```bash
-EXPO_PUBLIC_SUPABASE_URL=
-EXPO_PUBLIC_SUPABASE_KEY=
-EXPO_PUBLIC_AUTH_PROVIDER=supabase
-EXPO_PUBLIC_BETTER_AUTH_BASE_URL=
-EXPO_PUBLIC_ENABLE_PAYSTACK=true
-EXPO_PUBLIC_ENABLE_DODO=false
-```
-
-3. Start app
-
-```bash
 pnpm start
 ```
 
-## Supabase Setup
+Apply the SQL migrations in `supabase/sql`, deploy the functions in `supabase/functions`, and configure the public application values described in the existing setup documentation.
 
-1. Apply SQL migrations in order:
-- `supabase/sql/001_init.sql`
-- `supabase/sql/002_security_and_collab.sql`
-- `supabase/sql/003_exports_storage.sql`
-- `supabase/sql/004_profiles_family_read.sql`
-- `supabase/sql/005_families_owner_read.sql`
-- `supabase/sql/006_profile_appearance.sql`
-- `supabase/sql/007_notifications.sql`
-- `supabase/sql/008_notification_inbox.sql`
+Useful checks:
 
-2. Deploy edge functions:
-- `create-invite`
-- `accept-invite`
-- `create-checkout-link`
-- `delete-account`
-- `send-notification-event`
-- `dispatch-reminders`
-- `send-capsule-emails`
-- `process-exports`
+```bash
+pnpm typecheck
+pnpm lint
+```
 
-3. Configure edge function secrets:
-- `SUPABASE_URL`
-- `SUPABASE_ANON_KEY`
-- `SUPABASE_SERVICE_ROLE_KEY`
-- `RESEND_API_KEY`
-- `RESEND_FROM`
-- `APP_INVITE_BASE_URL` (e.g., `evernest://accept-invite`)
-- `PAYSTACK_SECRET_KEY`
-- `PAYSTACK_PLAN_PRO_MONTHLY`
-- `PAYSTACK_CALLBACK_URL`
-- `DODO_API_KEY`
-- `DODO_CHECKOUT_ENDPOINT`
+## Documentation
 
-4. Schedule `send-capsule-emails` and `process-exports` with Supabase Cron.
-   Also schedule `dispatch-reminders` every 15 minutes.
+- [Architecture](./docs/ARCHITECTURE.md)
+- [Security](./docs/SECURITY.md)
+- [Threat model](./docs/THREAT_MODEL.md)
+- [Deployment](./docs/DEPLOYMENT.md)
+- [Roadmap](./docs/ROADMAP.md)
 
-## Security Defaults
+## Project status
 
-- Row Level Security across family data tables
-- Private storage bucket policies scoped by family UUID path
-- Invite token hashes stored server-side (no plaintext token storage)
-- No secret keys in mobile app bundle
-- Input validation on client and function boundaries
-- Audit events for invite flows
-
-## Better Auth Fallback
-
-If Supabase Auth is not used, switch `EXPO_PUBLIC_AUTH_PROVIDER=better-auth` and follow [docs/BETTER_AUTH_EXPO.md](./docs/BETTER_AUTH_EXPO.md).
+EverNest is an active mobile product prototype. It should not claim production readiness until notification delivery, billing, exports, account deletion, media retention, backup recovery, and multi-device behaviour have complete automated and operational validation.
